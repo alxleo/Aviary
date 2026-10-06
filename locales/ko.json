@@ -12,6 +12,10 @@
     "fail": "로그인 실패",
     "register": "계정 생성",
     "sso_button": "SSO로 로그인",
+    "device_instructions": "브라우저에서 로그인을 승인한 다음 여기로 돌아오세요.",
+    "device_open": "브라우저에서 계속",
+    "device_preparing": "보안 로그인을 준비하는 중…",
+    "device_retry": "다시 시도",
     "or_continue_with": "또는 계속하기",
     "forgot_password": "비밀번호를 잊으셨나요?"
   },

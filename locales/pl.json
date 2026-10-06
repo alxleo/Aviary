@@ -12,6 +12,10 @@
     "fail": "Logowanie nieudane",
     "register": "Utwórz konto",
     "sso_button": "Zaloguj się przez SSO",
+    "device_instructions": "Zatwierdź logowanie w przeglądarce, a następnie wróć tutaj.",
+    "device_open": "Kontynuuj w przeglądarce",
+    "device_preparing": "Przygotowywanie bezpiecznego logowania…",
+    "device_retry": "Spróbuj ponownie",
     "or_continue_with": "Lub kontynuuj z",
     "forgot_password": "Zapomniałeś hasła?"
   },

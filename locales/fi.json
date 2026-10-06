@@ -12,6 +12,10 @@
     "fail": "Kirjautuminen epäonnistui",
     "register": "Luo tili",
     "sso_button": "Kirjaudu SSO:lla",
+    "device_instructions": "Hyväksy kirjautuminen selaimessa ja palaa sitten tänne.",
+    "device_open": "Jatka selaimessa",
+    "device_preparing": "Valmistellaan suojattua kirjautumista…",
+    "device_retry": "Yritä uudelleen",
     "or_continue_with": "Tai jatka",
     "forgot_password": "Unohditko salasanan?"
   },

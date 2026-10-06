@@ -55,7 +55,7 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: |
-            ghcr.io/rmitchellscott/aviary
+            ghcr.io/alxleo/aviary
           tags: |
             # branch-based tags (e.g. 'main')
             type=ref,event=branch

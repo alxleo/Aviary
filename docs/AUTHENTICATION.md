@@ -84,6 +84,7 @@ OIDC_SCOPES=openid,profile,email
 OIDC_AUTO_CREATE_USERS=true
 OIDC_ADMIN_GROUP=aviary-admins
 OIDC_SSO_ONLY=true
+OIDC_DEVICE_LOGIN_ENABLED=true
 OIDC_BUTTON_TEXT="Sign in with Company SSO"
 OIDC_SUCCESS_REDIRECT_URL=https://aviary.example.com/
 OIDC_POST_LOGOUT_REDIRECT_URL=https://aviary.example.com/
@@ -99,6 +100,7 @@ OIDC_POST_LOGOUT_REDIRECT_URL=https://aviary.example.com/
 - **OIDC_AUTO_CREATE_USERS**: Whether to automatically create user accounts for new OIDC users (true/false)
 - **OIDC_ADMIN_GROUP**: Name of the OIDC group that grants admin privileges. Users must be members of this group to receive admin rights. If not set, the first user becomes admin
 - **OIDC_SSO_ONLY**: When set to `true`, hides the traditional username/password login form and shows only the OIDC login button (optional, defaults to false)
+- **OIDC_DEVICE_LOGIN_ENABLED**: When set to `true`, enables the native app device login flow for providers that advertise an OAuth 2.0 device authorization endpoint. The native app opens the provider verification link in the system browser and completes the session when approval is detected (optional, defaults to false)
 - **OIDC_BUTTON_TEXT**: Custom text that will override the OIDC login button (optional)
 - **OIDC_SUCCESS_REDIRECT_URL**: Where to redirect users after successful login (optional, defaults to "/")
 - **OIDC_POST_LOGOUT_REDIRECT_URL**: Where to redirect users after logout (optional)

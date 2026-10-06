@@ -21,6 +21,7 @@ require (
 	github.com/go-playground/validator/v10 v10.30.1
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
+	github.com/jellydator/ttlcache/v3 v3.4.1
 	github.com/joho/godotenv v1.5.1
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/vincent-petithory/dataurl v1.0.0

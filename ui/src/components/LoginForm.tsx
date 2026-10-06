@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/components/AuthProvider";
 import { useConfig } from "@/components/ConfigProvider";
+import { NativeDeviceLogin } from "@/components/NativeDeviceLogin";
 
 interface LoginFormProps {
   onLogin: () => void;
@@ -28,6 +29,9 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   const oidcSsoOnly = config?.oidcSsoOnly || false;
   const oidcButtonText = config?.oidcButtonText || "";
   const proxyAuthEnabled = config?.proxyAuthEnabled || false;
+  const nativeApp = typeof document !== "undefined" && document.documentElement.classList.contains("native-app");
+  const deviceLoginEnabled = Boolean(nativeApp && multiUserMode && oidcEnabled && config?.oidcDeviceLoginEnabled);
+
 
   useEffect(() => {
     // Focus the username field when component mounts
@@ -105,7 +109,9 @@ export function LoginForm({ onLogin }: LoginFormProps) {
           )}
           <CardContent className={isSsoOnly ? 'py-12 px-8' : ''}>
           {/* OIDC Login Button (multi-user mode only) */}
-          {multiUserMode && oidcEnabled && (
+          {deviceLoginEnabled ? (
+            <NativeDeviceLogin />
+          ) : multiUserMode && oidcEnabled && (
             <div className={isSsoOnly ? 'flex flex-col items-center' : 'mb-6'}>
               <Button 
                 type="button" 

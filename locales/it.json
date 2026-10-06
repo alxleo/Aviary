@@ -12,6 +12,10 @@
     "fail": "Accesso fallito",
     "register": "Crea account",
     "sso_button": "Accedi con SSO",
+    "device_instructions": "Approva l'accesso nel browser, quindi torna qui.",
+    "device_open": "Continua nel browser",
+    "device_preparing": "Preparazione dell'accesso sicuro…",
+    "device_retry": "Riprova",
     "or_continue_with": "O continua con",
     "forgot_password": "Password dimenticata?"
   },

@@ -172,6 +172,10 @@ func main() {
 		router.GET("/api/auth/oidc/login", auth.OIDCAuthHandler)
 		router.GET("/api/auth/oidc/callback", auth.OIDCCallbackHandler)
 		router.POST("/api/auth/oidc/logout", auth.OIDCLogoutHandler)
+		router.POST("/api/auth/oidc/device/start", auth.OIDCDeviceStartHandler)
+		router.GET("/api/auth/oidc/device/status", auth.OIDCDeviceStatusHandler)
+		router.POST("/api/auth/oidc/device/finish", auth.OIDCDeviceFinishHandler)
+		router.POST("/api/auth/oidc/device/cancel", auth.OIDCDeviceCancelHandler)
 		router.GET("/api/auth/proxy/check", auth.ProxyAuthCheckHandler)
 	}
 

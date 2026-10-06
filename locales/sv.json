@@ -12,6 +12,10 @@
     "fail": "Inloggning misslyckades",
     "register": "Skapa konto",
     "sso_button": "Logga in med SSO",
+    "device_instructions": "Godkänn inloggningen i webbläsaren och återvänd sedan hit.",
+    "device_open": "Fortsätt i webbläsaren",
+    "device_preparing": "Förbereder säker inloggning…",
+    "device_retry": "Försök igen",
     "or_continue_with": "Eller fortsätt med",
     "forgot_password": "Glömt lösenord?"
   },

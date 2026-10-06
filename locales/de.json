@@ -12,6 +12,10 @@
     "fail": "Anmeldung fehlgeschlagen",
     "register": "Konto erstellen",
     "sso_button": "Mit SSO anmelden",
+    "device_instructions": "Bestätige die Anmeldung im Browser und kehre dann hierher zurück.",
+    "device_open": "Im Browser fortfahren",
+    "device_preparing": "Sichere Anmeldung wird vorbereitet…",
+    "device_retry": "Erneut versuchen",
     "or_continue_with": "Oder fortfahren mit",
     "forgot_password": "Passwort vergessen?"
   },

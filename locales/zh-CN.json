@@ -12,6 +12,10 @@
     "fail": "登录失败",
     "register": "创建账户",
     "sso_button": "使用SSO登录",
+    "device_instructions": "请在浏览器中批准登录，然后返回此处。",
+    "device_open": "在浏览器中继续",
+    "device_preparing": "正在准备安全登录…",
+    "device_retry": "重试",
     "or_continue_with": "或继续使用",
     "forgot_password": "忘记密码？"
   },
