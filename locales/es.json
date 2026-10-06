@@ -12,6 +12,10 @@
     "fail": "Error de inicio",
     "register": "Crear cuenta",
     "sso_button": "Iniciar sesión con SSO",
+    "device_instructions": "Aprueba el inicio de sesión en el navegador y vuelve aquí.",
+    "device_open": "Continuar en el navegador",
+    "device_preparing": "Preparando el inicio de sesión seguro…",
+    "device_retry": "Intentar de nuevo",
     "or_continue_with": "O continuar con",
     "forgot_password": "¿Olvidaste tu contraseña?"
   },

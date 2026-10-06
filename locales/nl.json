@@ -12,6 +12,10 @@
     "fail": "Inloggen mislukt",
     "register": "Account maken",
     "sso_button": "Inloggen met SSO",
+    "device_instructions": "Keur het inloggen goed in de browser en keer daarna hier terug.",
+    "device_open": "Doorgaan in browser",
+    "device_preparing": "Beveiligde aanmelding voorbereiden…",
+    "device_retry": "Opnieuw proberen",
     "or_continue_with": "Of doorgaan met",
     "forgot_password": "Wachtwoord vergeten?"
   },

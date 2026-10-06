@@ -151,6 +151,7 @@ For more rmapi-specific configuration, see [their documentation](https://github.
 | OIDC_AUTO_CREATE_USERS   | No        | false   | Set to `true` to automatically create users from OIDC claims |
 | OIDC_ADMIN_GROUP         | No        |         | OIDC group name for admin role assignment. Users in this group become admins. Role management via native UI is disabled |
 | OIDC_SSO_ONLY            | No        | false   | Set to `true` to hide traditional login form and show only OIDC login button |
+| OIDC_DEVICE_LOGIN_ENABLED | No       | false   | Set to `true` to enable the native app device login flow; requires an OIDC provider device authorization endpoint |
 | OIDC_BUTTON_TEXT         | No        |         | Custom text to override the OIDC login button with |
 | OIDC_SUCCESS_REDIRECT_URL | No       |         | URL to redirect to after successful OIDC authentication |
 | OIDC_POST_LOGOUT_REDIRECT_URL | No   |         | URL to redirect to after OIDC logout |

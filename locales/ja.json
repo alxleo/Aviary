@@ -12,6 +12,10 @@
     "fail": "ログインに失敗しました",
     "register": "アカウントを作成",
     "sso_button": "SSOでサインイン",
+    "device_instructions": "ブラウザでサインインを承認してから、ここに戻ってください。",
+    "device_open": "ブラウザで続行",
+    "device_preparing": "安全なサインインを準備しています…",
+    "device_retry": "もう一度試す",
     "or_continue_with": "または続行",
     "forgot_password": "パスワードを忘れた場合"
   },

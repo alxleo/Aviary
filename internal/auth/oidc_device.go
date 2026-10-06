@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jellydator/ttlcache/v3"
 	"github.com/rmitchellscott/aviary/internal/config"
 	"github.com/rmitchellscott/aviary/internal/database"
 	"golang.org/x/oauth2"
@@ -20,6 +21,7 @@ import (
 const (
 	deviceLoginProofCookie = "oidc_device_proof"
 	deviceLoginTTL         = 10 * time.Minute
+	deviceLoginStartTTL    = 15 * time.Second
 	maxPendingDeviceLogins = 32
 )
 
@@ -44,34 +46,25 @@ type deviceLoginTransaction struct {
 
 type deviceLoginStore struct {
 	mu           sync.Mutex
-	transactions map[string]*deviceLoginTransaction
+	cache        *ttlcache.Cache[string, *deviceLoginTransaction]
 	reservations int
-	janitorOnce  sync.Once
 }
 
 var pendingDeviceLogins = newDeviceLoginStore()
 
 func newDeviceLoginStore() *deviceLoginStore {
-	return &deviceLoginStore{transactions: make(map[string]*deviceLoginTransaction)}
-}
-
-func (s *deviceLoginStore) startJanitor() {
-	s.janitorOnce.Do(func() {
-		go func() {
-			ticker := time.NewTicker(time.Minute)
-			defer ticker.Stop()
-			for now := range ticker.C {
-				s.expire(now)
-			}
-		}()
+	cache := ttlcache.New[string, *deviceLoginTransaction](ttlcache.WithCapacity[string, *deviceLoginTransaction](maxPendingDeviceLogins))
+	cache.OnEviction(func(_ context.Context, _ ttlcache.EvictionReason, item *ttlcache.Item[string, *deviceLoginTransaction]) {
+		item.Value().cancel()
 	})
+	go cache.Start()
+	return &deviceLoginStore{cache: cache}
 }
 
 func (s *deviceLoginStore) reserve() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.expireLocked(time.Now())
-	if len(s.transactions)+s.reservations >= maxPendingDeviceLogins {
+	if s.cache.Len()+s.reservations >= maxPendingDeviceLogins {
 		return false
 	}
 	s.reservations++
@@ -91,40 +84,31 @@ func (s *deviceLoginStore) add(transaction *deviceLoginTransaction) {
 	if s.reservations > 0 {
 		s.reservations--
 	}
-	s.transactions[transaction.proof] = transaction
+	s.cache.Set(transaction.proof, transaction, time.Until(transaction.expiresAt))
 	s.mu.Unlock()
 }
 
 func (s *deviceLoginStore) cancel(proof string) {
-	s.mu.Lock()
-	transaction, ok := s.transactions[proof]
-	if ok {
-		delete(s.transactions, proof)
-	}
-	s.mu.Unlock()
-	if ok {
-		transaction.cancel()
-	}
+	s.cache.Delete(proof)
 }
 
 func (s *deviceLoginStore) status(proof string) deviceLoginStatus {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.expireLocked(time.Now())
-	transaction, ok := s.transactions[proof]
-	if !ok {
+	item := s.cache.Get(proof)
+	if item == nil {
 		return deviceLoginExpired
 	}
-	return transaction.status
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return item.Value().status
 }
 
 func (s *deviceLoginStore) complete(proof string, token *oauth2.Token, err error) {
-	s.mu.Lock()
-	transaction, ok := s.transactions[proof]
-	if !ok {
-		s.mu.Unlock()
+	item := s.cache.Get(proof)
+	if item == nil {
 		return
 	}
+	s.mu.Lock()
+	transaction := item.Value()
 	if err == nil {
 		transaction.status = deviceLoginApproved
 		transaction.token = token
@@ -137,50 +121,37 @@ func (s *deviceLoginStore) complete(proof string, token *oauth2.Token, err error
 }
 
 func (s *deviceLoginStore) takeApproved(proof string) (*oauth2.Token, deviceLoginStatus) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	transaction, ok := s.transactions[proof]
-	if !ok {
+	item := s.cache.Get(proof)
+	if item == nil {
 		return nil, deviceLoginExpired
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	transaction := item.Value()
 	if time.Now().After(transaction.expiresAt) {
-		delete(s.transactions, proof)
-		transaction.cancel()
+		s.cache.Delete(proof)
 		return nil, deviceLoginExpired
 	}
 	if transaction.status != deviceLoginApproved {
 		return nil, transaction.status
 	}
-	delete(s.transactions, proof)
+	s.cache.Delete(proof)
 	return transaction.token, deviceLoginApproved
 }
 
-func (s *deviceLoginStore) expire(now time.Time) {
-	s.mu.Lock()
-	s.expireLocked(now)
-	s.mu.Unlock()
-}
-
-func (s *deviceLoginStore) expireLocked(now time.Time) {
-	for proof, transaction := range s.transactions {
-		if now.After(transaction.expiresAt) {
-			delete(s.transactions, proof)
-			transaction.cancel()
-		}
-	}
-}
-
-func init() {
-	pendingDeviceLogins.startJanitor()
+func (s *deviceLoginStore) stop() {
+	s.cache.DeleteAll()
+	s.cache.Stop()
 }
 
 // IsOIDCDeviceLoginEnabled reports whether the opt-in device flow is available.
 // The public config endpoint intentionally exposes only this boolean.
 func IsOIDCDeviceLoginEnabled() bool {
-	return oidcEnabled && database.IsMultiUserMode() && config.GetBool("OIDC_DEVICE_LOGIN_ENABLED", false) && oauth2Config != nil && oauth2Config.Endpoint.DeviceAuthURL != ""
+	return oidcEnabled && database.IsMultiUserMode() && config.GetBool("OIDC_DEVICE_LOGIN_ENABLED", false) && oauth2Config != nil && oauth2Config.Endpoint.DeviceAuthURL != "" && oauth2Config.Endpoint.TokenURL != ""
 }
 
 func OIDCDeviceStartHandler(c *gin.Context) {
+	setDeviceLoginNoStore(c)
 	if !IsOIDCDeviceLoginEnabled() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "OIDC device login is not enabled"})
 		return
@@ -197,7 +168,9 @@ func OIDCDeviceStartHandler(c *gin.Context) {
 		return
 	}
 
-	deviceAuth, err := oauth2Config.DeviceAuth(context.Background(), deviceLoginOAuthOptions()...)
+	startCtx, startCancel := context.WithTimeout(context.Background(), deviceLoginStartTTL)
+	deviceAuth, err := oauth2Config.DeviceAuth(startCtx, deviceLoginOAuthOptions()...)
+	startCancel()
 	if err != nil {
 		pendingDeviceLogins.releaseReservation()
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Device login provider unavailable"})
@@ -246,6 +219,7 @@ func OIDCDeviceStartHandler(c *gin.Context) {
 }
 
 func OIDCDeviceStatusHandler(c *gin.Context) {
+	setDeviceLoginNoStore(c)
 	if !IsOIDCDeviceLoginEnabled() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "OIDC device login is not enabled"})
 		return
@@ -263,6 +237,7 @@ func OIDCDeviceStatusHandler(c *gin.Context) {
 }
 
 func OIDCDeviceFinishHandler(c *gin.Context) {
+	setDeviceLoginNoStore(c)
 	if !IsOIDCDeviceLoginEnabled() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "OIDC device login is not enabled"})
 		return
@@ -323,6 +298,7 @@ func OIDCDeviceFinishHandler(c *gin.Context) {
 }
 
 func OIDCDeviceCancelHandler(c *gin.Context) {
+	setDeviceLoginNoStore(c)
 	if !IsOIDCDeviceLoginEnabled() {
 		c.JSON(http.StatusNotFound, gin.H{"error": "OIDC device login is not enabled"})
 		return
@@ -371,6 +347,10 @@ func clearDeviceLoginProofCookie(c *gin.Context) {
 	secure := !allowInsecure()
 	c.SetSameSite(http.SameSiteStrictMode)
 	c.SetCookie(deviceLoginProofCookie, "", -1, "/api/auth/oidc/device", "", secure, true)
+}
+
+func setDeviceLoginNoStore(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 }
 
 func requireSameOrigin(c *gin.Context) bool {

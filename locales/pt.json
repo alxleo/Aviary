@@ -12,6 +12,10 @@
     "fail": "Falha no login",
     "register": "Criar conta",
     "sso_button": "Entrar com SSO",
+    "device_instructions": "Aprove o início de sessão no navegador e volte aqui.",
+    "device_open": "Continuar no navegador",
+    "device_preparing": "A preparar o início de sessão seguro…",
+    "device_retry": "Tentar novamente",
     "or_continue_with": "Ou continue com",
     "forgot_password": "Esqueceu a senha?"
   },

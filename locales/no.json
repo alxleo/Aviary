@@ -12,6 +12,10 @@
     "fail": "Innlogging mislyktes",
     "register": "Opprett konto",
     "sso_button": "Logg inn med SSO",
+    "device_instructions": "Godkjenn påloggingen i nettleseren, og kom deretter tilbake hit.",
+    "device_open": "Fortsett i nettleseren",
+    "device_preparing": "Forbereder sikker pålogging…",
+    "device_retry": "Prøv igjen",
     "or_continue_with": "Eller fortsett med",
     "forgot_password": "Glemt passord?"
   },

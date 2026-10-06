@@ -12,6 +12,10 @@
     "fail": "Login mislykkedes",
     "register": "Opret konto",
     "sso_button": "Log ind med SSO",
+    "device_instructions": "Godkend login i browseren, og vend derefter tilbage hertil.",
+    "device_open": "Fortsæt i browseren",
+    "device_preparing": "Forbereder sikkert login…",
+    "device_retry": "Prøv igen",
     "or_continue_with": "Eller fortsæt med",
     "forgot_password": "Glemt adgangskode?"
   },

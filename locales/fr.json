@@ -12,6 +12,10 @@
     "fail": "Échec de la connexion",
     "register": "Créer un compte",
     "sso_button": "Se connecter avec SSO",
+    "device_instructions": "Approuvez la connexion dans le navigateur, puis revenez ici.",
+    "device_open": "Continuer dans le navigateur",
+    "device_preparing": "Préparation de la connexion sécurisée…",
+    "device_retry": "Réessayer",
     "or_continue_with": "Ou continuer avec",
     "forgot_password": "Mot de passe oublié ?"
   },
