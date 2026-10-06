@@ -266,7 +266,11 @@ func main() {
 	protected.GET("/version", func(c *gin.Context) {
 		c.JSON(http.StatusOK, version.Get())
 	})
-	router.GET("/api/config", handlers.ConfigHandler)
+	if database.IsMultiUserMode() {
+		router.GET("/api/config", auth.OptionalAuthMiddleware(), handlers.ConfigHandler)
+	} else {
+		router.GET("/api/config", handlers.ConfigHandler)
+	}
 
 	if config.Get("DISABLE_UI", "") == "" {
 		router.NoRoute(func(c *gin.Context) {

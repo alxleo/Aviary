@@ -227,7 +227,10 @@ func buildPutArgs(path string, user *database.User, opts UploadOptions) []string
 // runPutCommand executes rmapi put and returns the parsed result.
 func runPutCommand(path, rmDir string, user *database.User, args []string) (string, error) {
 	args = append(args, path, rmDir)
-	cmd, cleanup := rmapi.NewCommand(user, args...)
+	cmd, cleanup, err := rmapi.NewCommand(user, args...)
+	if err != nil {
+		return "", err
+	}
 	defer cleanup()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -321,7 +324,10 @@ func CleanupOld(prefix, rmDir string, retentionDays int, user *database.User) er
 	}
 
 	// 1) List remote files using JSON output for reliable parsing
-	proc, cleanup := rmapi.NewCommand(user, "--json", "ls", rmDir)
+	proc, cleanup, err := rmapi.NewCommand(user, "--json", "ls", rmDir)
+	if err != nil {
+		return err
+	}
 	defer cleanup()
 	out, err := proc.Output()
 	if err != nil {
@@ -375,7 +381,10 @@ func CleanupOld(prefix, rmDir string, retentionDays int, user *database.User) er
 		if fileDate.Before(cutoff) {
 			Logf("Removing %s (dated %s < %s)",
 				entry.Name, fileDate.Format("2006-01-02"), cutoff.Format("2006-01-02"))
-			rmCmd, rmCleanup := rmapi.NewCommand(user, "rm", filepath.Join(rmDir, entry.Name))
+			rmCmd, rmCleanup, err := rmapi.NewCommand(user, "rm", filepath.Join(rmDir, entry.Name))
+			if err != nil {
+				return err
+			}
 			rmCmd.Run()
 			rmCleanup()
 		}

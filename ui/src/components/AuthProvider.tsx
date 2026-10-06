@@ -11,6 +11,7 @@ interface User {
   email: string
   is_admin: boolean
   rmapi_host?: string
+  rmapi_shared?: boolean
   rmapi_paired?: boolean
   default_rmdir: string
   coverpage_setting?: string

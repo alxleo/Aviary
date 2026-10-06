@@ -26,13 +26,13 @@ func requireUser(c *gin.Context) (*database.User, bool) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authentication required"})
 		return nil, false
 	}
-	
+
 	dbUser, ok := user.(*database.User)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user context"})
 		return nil, false
 	}
-	
+
 	return dbUser, true
 }
 
@@ -53,7 +53,7 @@ func HandlePairRequest(c *gin.Context) {
 		PairHandler(c)
 		return
 	}
-	
+
 	// Single-user mode pairing
 	var req struct {
 		Code string `json:"code" binding:"required"`
@@ -62,7 +62,7 @@ func HandlePairRequest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
-	
+
 	// Ensure the rmapi config directory exists
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -75,11 +75,11 @@ func HandlePairRequest(c *gin.Context) {
 		return
 	}
 	cfgPath := filepath.Join(cfgDir, "rmapi.conf")
-	
+
 	// Run rmapi cd command with the provided code
 	cmd := exec.Command("rmapi", "cd")
 	cmd.Stdin = strings.NewReader(req.Code + "\n")
-	
+
 	// Set environment variables
 	env := os.Environ()
 	env = append(env, "RMAPI_CONFIG="+cfgPath)
@@ -87,17 +87,17 @@ func HandlePairRequest(c *gin.Context) {
 		env = append(env, "RMAPI_HOST="+host)
 	}
 	cmd.Env = env
-	
+
 	if err := cmd.Run(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Pairing failed"})
 		return
 	}
-	
+
 	// Call post-pairing callback if set (async for folder cache refresh)
 	if postPairingCallback != nil {
 		go postPairingCallback("single-user", true) // true = single-user mode
 	}
-	
+
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
@@ -108,14 +108,18 @@ func PairHandler(c *gin.Context) {
 		return
 	}
 
-	// Mock successful pairing in DRY_RUN mode
-	if config.Get("DRY_RUN", "") != "" {
-		c.JSON(http.StatusOK, gin.H{"success": true})
+	user, ok := requireUser(c)
+	if !ok {
+		return
+	}
+	if shared, err := IsSharedBorrower(user); err != nil || shared {
+		c.JSON(http.StatusForbidden, gin.H{"error": "rmapi destination is managed by the shared owner"})
 		return
 	}
 
-	user, ok := requireUser(c)
-	if !ok {
+	// Mock successful pairing in DRY_RUN mode
+	if config.Get("DRY_RUN", "") != "" {
+		c.JSON(http.StatusOK, gin.H{"success": true})
 		return
 	}
 
@@ -134,13 +138,13 @@ func PairHandler(c *gin.Context) {
 		return
 	}
 	defer os.RemoveAll(tempDir)
-	
+
 	cfgPath := filepath.Join(tempDir, "rmapi.conf")
 
 	// Run rmapi cd command with user-specific configuration
 	cmd := exec.Command("rmapi", "cd")
 	cmd.Stdin = strings.NewReader(req.Code + "\n")
-	
+
 	env := os.Environ()
 	env = append(env, "RMAPI_CONFIG="+cfgPath)
 	if user.RmapiHost != "" {
@@ -150,7 +154,7 @@ func PairHandler(c *gin.Context) {
 		env = filterEnv(env, "RMAPI_HOST")
 	}
 	cmd.Env = env
-	
+
 	if err := cmd.Run(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Pairing failed"})
 		return
@@ -178,6 +182,10 @@ func UnpairHandler(c *gin.Context) {
 
 	user, ok := requireUser(c)
 	if !ok {
+		return
+	}
+	if shared, err := IsSharedBorrower(user); err != nil || shared {
+		c.JSON(http.StatusForbidden, gin.H{"error": "rmapi destination is managed by the shared owner"})
 		return
 	}
 

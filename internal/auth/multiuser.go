@@ -38,51 +38,54 @@ type PasswordResetConfirmRequest struct {
 
 // UserResponse represents a user in API responses
 type UserResponse struct {
-	ID                     uuid.UUID  `json:"id"`
-	Username               string     `json:"username"`
-	Email                  string     `json:"email"`
-	IsAdmin                bool       `json:"is_admin"`
-	IsActive               bool       `json:"is_active"`
-	RmapiHost              string     `json:"rmapi_host,omitempty"`
-	DefaultRmdir           string     `json:"default_rmdir"`
-	CoverpageSetting       string     `json:"coverpage_setting"`
-	ContrastSetting        string     `json:"contrast_setting"`
-	ConflictResolution     string     `json:"conflict_resolution"`
-	FolderDepthLimit       int        `json:"folder_depth_limit"`
-	FolderExclusionList    string     `json:"folder_exclusion_list"`
-	PageResolution         string     `json:"page_resolution,omitempty"`
-	PageDPI                float64    `json:"page_dpi,omitempty"`
-	ConversionOutputFormat string     `json:"conversion_output_format,omitempty"`
-	RmapiPaired            bool       `json:"rmapi_paired"`
-	PDFBackgroundRemoval   *bool      `json:"pdf_background_removal,omitempty"`
-	ExperimentalDownloadLink *bool   `json:"experimental_download_link,omitempty"`
-	CreatedAt              time.Time  `json:"created_at"`
-	LastLogin              *time.Time `json:"last_login,omitempty"`
+	ID                       uuid.UUID  `json:"id"`
+	Username                 string     `json:"username"`
+	Email                    string     `json:"email"`
+	IsAdmin                  bool       `json:"is_admin"`
+	IsActive                 bool       `json:"is_active"`
+	RmapiHost                string     `json:"rmapi_host,omitempty"`
+	RmapiShared              bool       `json:"rmapi_shared"`
+	DefaultRmdir             string     `json:"default_rmdir"`
+	CoverpageSetting         string     `json:"coverpage_setting"`
+	ContrastSetting          string     `json:"contrast_setting"`
+	ConflictResolution       string     `json:"conflict_resolution"`
+	FolderDepthLimit         int        `json:"folder_depth_limit"`
+	FolderExclusionList      string     `json:"folder_exclusion_list"`
+	PageResolution           string     `json:"page_resolution,omitempty"`
+	PageDPI                  float64    `json:"page_dpi,omitempty"`
+	ConversionOutputFormat   string     `json:"conversion_output_format,omitempty"`
+	RmapiPaired              bool       `json:"rmapi_paired"`
+	PDFBackgroundRemoval     *bool      `json:"pdf_background_removal,omitempty"`
+	ExperimentalDownloadLink *bool      `json:"experimental_download_link,omitempty"`
+	CreatedAt                time.Time  `json:"created_at"`
+	LastLogin                *time.Time `json:"last_login,omitempty"`
 }
 
 // userToResponse converts a database.User to a UserResponse
 func userToResponse(user *database.User) UserResponse {
+	destination := rmapi.DestinationStatusForUser(user)
 	return UserResponse{
-		ID:                     user.ID,
-		Username:               user.Username,
-		Email:                  user.Email,
-		IsAdmin:                user.IsAdmin,
-		IsActive:               user.IsActive,
-		RmapiHost:              user.RmapiHost,
-		RmapiPaired:            rmapi.IsUserPaired(user.ID),
-		DefaultRmdir:           user.DefaultRmdir,
-		CoverpageSetting:       user.CoverpageSetting,
-		ContrastSetting:        user.ContrastSetting,
-		ConflictResolution:     user.ConflictResolution,
-		FolderDepthLimit:       user.FolderDepthLimit,
-		FolderExclusionList:    user.FolderExclusionList,
-		PageResolution:         user.PageResolution,
-		PageDPI:                user.PageDPI,
-		ConversionOutputFormat: user.ConversionOutputFormat,
+		ID:                       user.ID,
+		Username:                 user.Username,
+		Email:                    user.Email,
+		IsAdmin:                  user.IsAdmin,
+		IsActive:                 user.IsActive,
+		RmapiHost:                destination.Host,
+		RmapiShared:              destination.Shared,
+		RmapiPaired:              destination.Paired,
+		DefaultRmdir:             user.DefaultRmdir,
+		CoverpageSetting:         user.CoverpageSetting,
+		ContrastSetting:          user.ContrastSetting,
+		ConflictResolution:       user.ConflictResolution,
+		FolderDepthLimit:         user.FolderDepthLimit,
+		FolderExclusionList:      user.FolderExclusionList,
+		PageResolution:           user.PageResolution,
+		PageDPI:                  user.PageDPI,
+		ConversionOutputFormat:   user.ConversionOutputFormat,
 		PDFBackgroundRemoval:     user.PDFBackgroundRemoval,
 		ExperimentalDownloadLink: user.ExperimentalDownloadLink,
 		CreatedAt:                user.CreatedAt,
-		LastLogin:              user.LastLogin,
+		LastLogin:                user.LastLogin,
 	}
 }
 
@@ -134,12 +137,12 @@ func PublicRegisterHandler(c *gin.Context) {
 
 	req.Username = strings.TrimSpace(req.Username)
 	req.Email = strings.TrimSpace(req.Email)
-	
+
 	if err := ValidateNewUsername(req.Username); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	firstUser := userCount == 0
 
 	userService := database.NewUserService(database.DB)
@@ -204,12 +207,12 @@ func RegisterHandler(c *gin.Context) {
 
 	req.Username = strings.TrimSpace(req.Username)
 	req.Email = strings.TrimSpace(req.Email)
-	
+
 	if err := ValidateNewUsername(req.Username); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	
+
 	// Admin can always create users regardless of registration_enabled setting
 
 	userService := database.NewUserService(database.DB)
@@ -267,16 +270,16 @@ func MultiUserLoginHandler(c *gin.Context) {
 		UserAgent:   c.GetHeader("User-Agent"),
 	})
 
-        userService := database.NewUserService(database.DB)
-        user, err := userService.AuthenticateUser(req.Username, req.Password)
-        if err != nil {
-                if err.Error() == "account disabled" {
-                        c.JSON(http.StatusUnauthorized, gin.H{"error": "backend.auth.account_disabled"})
-                } else {
-                        c.JSON(http.StatusUnauthorized, gin.H{"error": "backend.auth.invalid_credentials"})
-                }
-                return
-        }
+	userService := database.NewUserService(database.DB)
+	user, err := userService.AuthenticateUser(req.Username, req.Password)
+	if err != nil {
+		if err.Error() == "account disabled" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "backend.auth.account_disabled"})
+		} else {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "backend.auth.invalid_credentials"})
+		}
+		return
+	}
 
 	// Log successful login
 	database.DB.Create(&database.LoginAttempt{

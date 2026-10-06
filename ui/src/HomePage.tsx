@@ -123,6 +123,7 @@ export default function HomePage() {
     useAuth();
   const { t } = useTranslation();
   const { rmapiPaired, rmapiHost, loading: userDataLoading, updatePairingStatus, user } = useUserData();
+  const rmapiShared = !!user?.rmapi_shared;
   const { config } = useConfig();
   const { refreshTrigger, triggerRefresh } = useFolderRefresh();
   const [url, setUrl] = useState<string>("");
@@ -879,7 +880,7 @@ export default function HomePage() {
             )}
           </div>
 
-          {!rmapiPaired && !userDataLoading && (
+          {!rmapiPaired && !rmapiShared && !userDataLoading && (
             <div className="bg-muted border rounded-md p-3 text-muted-foreground">
               <p className="text-sm">
                 <strong className="text-foreground">{t("home.pair_with_remarkable")}</strong>{t("home.to_upload_documents")}{multiUserMode && (
@@ -890,7 +891,7 @@ export default function HomePage() {
           )}
 
           <div className="flex flex-col sm:flex-row sm:justify-end">
-            {!userDataLoading && (
+            {!userDataLoading && (rmapiPaired || !rmapiShared) && (
               <Button
                 onClick={!rmapiPaired ? () => setPairingDialogOpen(true) : handleSubmit}
                 disabled={loading || (!url && !selectedFile && selectedFiles.length === 0 && rmapiPaired)}
@@ -1015,6 +1016,7 @@ export default function HomePage() {
         onClose={() => setPairingDialogOpen(false)}
         onPairingSuccess={handlePairingSuccess}
         rmapiHost={rmapiHost}
+        rmapiShared={rmapiShared}
       />
     </div>
   );

@@ -1,6 +1,7 @@
 package rmapi
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -26,66 +27,52 @@ func init() {
 	}
 }
 
-// NewCommand creates a new rmapi command with user-specific configuration
-// Returns the command and a cleanup function that should be called after execution
-func NewCommand(user *database.User, args ...string) (*exec.Cmd, func()) {
-	cmd := ExecCommand("rmapi", args...)
+// NewCommand creates a new rmapi command with the caller's cache and the
+// caller's effective rmapi destination. The cleanup function must be called
+// after execution. Destination resolution errors are returned before a
+// command can run, so a missing or inactive shared owner cannot fall back to
+// another account's configuration.
+func NewCommand(user *database.User, args ...string) (*exec.Cmd, func(), error) {
+	cleanup := func() {}
 	env := os.Environ()
 	var tempConfigPath string
 
+	if database.IsMultiUserMode() && user == nil {
+		return nil, cleanup, fmt.Errorf("authenticated user required for rmapi in multi-user mode")
+	}
+
 	if user != nil {
-		// Set user-specific cache directory to avoid cache collisions
+		effectiveUser, _, err := ResolveEffectiveUser(user)
+		if err != nil {
+			return nil, cleanup, err
+		}
+
+		// Keep cache isolation tied to the authenticated caller, even when the
+		// rmapi destination is shared.
 		cachePath := GetUserCachePath(user.ID)
 		env = append(env, "XDG_CACHE_HOME="+cachePath)
 
-		// Set user-specific RMAPI_HOST
-		if user.RmapiHost != "" {
-			env = append(env, "RMAPI_HOST="+user.RmapiHost)
+		if effectiveUser.RmapiHost != "" {
+			env = append(env, "RMAPI_HOST="+effectiveUser.RmapiHost)
 		} else {
-			// Remove server-level RMAPI_HOST to use official cloud
+			// Remove server-level RMAPI_HOST to use official cloud.
 			env = filterEnv(env, "RMAPI_HOST")
 		}
 
-		// Set user-specific config path
-		if cfg, err := GetUserConfigPath(user.ID); err == nil {
-			env = append(env, "RMAPI_CONFIG="+cfg)
-			tempConfigPath = cfg
+		cfg, err := GetUserConfigPath(effectiveUser.ID)
+		if err != nil {
+			return nil, cleanup, err
+		}
+		env = append(env, "RMAPI_CONFIG="+cfg)
+		tempConfigPath = cfg
+		cleanup = func() {
+			CleanupTempConfigFile(tempConfigPath)
 		}
 	}
 
-	cmd.Env = env
-
-	// Return cleanup function
-	cleanup := func() {
-		CleanupTempConfigFile(tempConfigPath)
-	}
-
-	return cmd, cleanup
-}
-
-// NewSimpleCommand creates a new rmapi command without cleanup (for simple operations)
-// Deprecated: Use NewCommand instead for proper temp file management
-func NewSimpleCommand(user *database.User, args ...string) *exec.Cmd {
 	cmd := ExecCommand("rmapi", args...)
-	env := os.Environ()
-
-	if user != nil {
-		// Set user-specific cache directory to avoid cache collisions
-		cachePath := GetUserCachePath(user.ID)
-		env = append(env, "XDG_CACHE_HOME="+cachePath)
-
-		if user.RmapiHost != "" {
-			env = append(env, "RMAPI_HOST="+user.RmapiHost)
-		} else {
-			env = filterEnv(env, "RMAPI_HOST")
-		}
-		if cfg, err := GetUserConfigPath(user.ID); err == nil {
-			env = append(env, "RMAPI_CONFIG="+cfg)
-		}
-	}
-
 	cmd.Env = env
-	return cmd
+	return cmd, cleanup, nil
 }
 
 // filterEnv removes environment variables with the given prefix from the slice
