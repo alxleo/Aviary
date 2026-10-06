@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,13 @@ import { useConfig } from "@/components/ConfigProvider";
 
 interface LoginFormProps {
   onLogin: () => void;
+}
+
+interface DeviceLoginStart {
+  status: "pending";
+  verification_uri_complete: string;
+  verification_uri?: string;
+  user_code?: string;
 }
 
 export function LoginForm({ onLogin }: LoginFormProps) {
@@ -28,6 +35,142 @@ export function LoginForm({ onLogin }: LoginFormProps) {
   const oidcSsoOnly = config?.oidcSsoOnly || false;
   const oidcButtonText = config?.oidcButtonText || "";
   const proxyAuthEnabled = config?.proxyAuthEnabled || false;
+  const nativeApp = typeof document !== "undefined" && document.documentElement.classList.contains("native-app");
+  const deviceLoginEnabled = Boolean(nativeApp && multiUserMode && oidcEnabled && config?.oidcDeviceLoginEnabled);
+  const [deviceLogin, setDeviceLogin] = useState<DeviceLoginStart | null>(null);
+  const [deviceError, setDeviceError] = useState("");
+  const [deviceAttempt, setDeviceAttempt] = useState(0);
+  const deviceStartRequested = useRef(false);
+  const deviceLoginFinished = useRef(false);
+  const devicePollTimer = useRef<number | null>(null);
+
+  const cancelDeviceLogin = () => {
+    void fetch("/api/auth/oidc/device/cancel", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+  };
+
+  useEffect(() => {
+    if (!deviceLoginEnabled || deviceStartRequested.current) {
+      return;
+    }
+    deviceStartRequested.current = true;
+    let active = true;
+
+    const startDeviceLogin = async () => {
+      try {
+        const response = await fetch("/api/auth/oidc/device/start", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        const data = await response.json();
+        if (!response.ok || !data.verification_uri_complete) {
+          throw new Error(data.error || "Device login is unavailable");
+        }
+        if (active) {
+          setDeviceError("");
+          setDeviceLogin(data as DeviceLoginStart);
+        }
+      } catch (error) {
+        if (active) {
+          setDeviceError(error instanceof Error ? error.message : "Device login is unavailable");
+        }
+      }
+    };
+
+    void startDeviceLogin();
+    return () => {
+      active = false;
+      if (devicePollTimer.current !== null) {
+        window.clearTimeout(devicePollTimer.current);
+        devicePollTimer.current = null;
+      }
+      if (!deviceLoginFinished.current) {
+        cancelDeviceLogin();
+      }
+    };
+  }, [deviceAttempt, deviceLoginEnabled]);
+
+  useEffect(() => {
+    if (!deviceLogin) {
+      return;
+    }
+    let active = true;
+
+    const schedulePoll = () => {
+      if (active) {
+        devicePollTimer.current = window.setTimeout(poll, 1500);
+      }
+    };
+
+    const poll = async () => {
+      try {
+        const statusResponse = await fetch("/api/auth/oidc/device/status", {
+          credentials: "include",
+        });
+        const statusData = await statusResponse.json();
+        if (statusData.status === "approved") {
+          const finishResponse = await fetch("/api/auth/oidc/device/finish", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+          });
+          if (finishResponse.ok) {
+            deviceLoginFinished.current = true;
+            window.location.reload();
+            return;
+          }
+          if (finishResponse.status !== 202) {
+            const finishData = await finishResponse.json().catch(() => ({}));
+            throw new Error(finishData.error || "Device login could not be completed");
+          }
+        } else if (statusData.status === "expired" || statusData.status === "failed") {
+          throw new Error("Device login expired or was cancelled");
+        }
+        schedulePoll();
+      } catch (error) {
+        if (active) {
+          setDeviceError(error instanceof Error ? error.message : "Device login could not be completed");
+        }
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        if (devicePollTimer.current !== null) {
+          window.clearTimeout(devicePollTimer.current);
+          devicePollTimer.current = null;
+        }
+        void poll();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void poll();
+    return () => {
+      active = false;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (devicePollTimer.current !== null) {
+        window.clearTimeout(devicePollTimer.current);
+        devicePollTimer.current = null;
+      }
+    };
+  }, [deviceLogin]);
+
+  const retryDeviceLogin = () => {
+    cancelDeviceLogin();
+    deviceLoginFinished.current = false;
+    deviceStartRequested.current = false;
+    setDeviceLogin(null);
+    setDeviceError("");
+    setDeviceAttempt((attempt) => attempt + 1);
+  };
 
   useEffect(() => {
     // Focus the username field when component mounts
@@ -105,7 +248,28 @@ export function LoginForm({ onLogin }: LoginFormProps) {
           )}
           <CardContent className={isSsoOnly ? 'py-12 px-8' : ''}>
           {/* OIDC Login Button (multi-user mode only) */}
-          {multiUserMode && oidcEnabled && (
+          {deviceLoginEnabled ? (
+            <div className="mb-6 space-y-3 text-center">
+              <p>{t("login.device_instructions")}</p>
+              {deviceLogin && (
+                <a
+                  href={deviceLogin.verification_uri_complete}
+                  className="inline-flex w-full items-center justify-center rounded-md bg-primary px-4 py-2 text-primary-foreground hover:bg-primary/90"
+                >
+                  {t("login.device_open")}
+                </a>
+              )}
+              {!deviceLogin && !deviceError && <p>{t("login.device_preparing")}</p>}
+              {deviceError && (
+                <>
+                  <p className="text-sm text-destructive">{deviceError}</p>
+                  <Button type="button" variant="outline" onClick={retryDeviceLogin}>
+                    {t("login.device_retry")}
+                  </Button>
+                </>
+              )}
+            </div>
+          ) : multiUserMode && oidcEnabled && (
             <div className={isSsoOnly ? 'flex flex-col items-center' : 'mb-6'}>
               <Button 
                 type="button" 

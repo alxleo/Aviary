@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -40,6 +40,46 @@ type OIDCConfig struct {
 	ClientSecret string
 	RedirectURL  string
 	Scopes       []string
+}
+
+type oidcIdentity struct {
+	Username      string   `json:"preferred_username"`
+	Email         string   `json:"email"`
+	Name          string   `json:"name"`
+	Subject       string   `json:"sub"`
+	EmailVerified bool     `json:"email_verified"`
+	Groups        []string `json:"groups"`
+}
+
+var (
+	errInvalidNonce    = errors.New("invalid nonce")
+	errMissingUsername = errors.New("no suitable username claim found")
+)
+
+func verifyOIDCIdentity(ctx context.Context, rawIDToken, expectedNonce string) (*oidcIdentity, error) {
+	idToken, err := oidcVerifier.Verify(ctx, rawIDToken)
+	if err != nil {
+		return nil, fmt.Errorf("failed to verify ID token: %w", err)
+	}
+
+	if expectedNonce != "" && idToken.Nonce != expectedNonce {
+		return nil, errInvalidNonce
+	}
+
+	var claims oidcIdentity
+	if err := idToken.Claims(&claims); err != nil {
+		return nil, fmt.Errorf("failed to extract claims: %w", err)
+	}
+	if claims.Username == "" {
+		claims.Username = claims.Email
+	}
+	if claims.Username == "" {
+		claims.Username = claims.Subject
+	}
+	if claims.Username == "" {
+		return nil, errMissingUsername
+	}
+	return &claims, nil
 }
 
 // InitOIDC initializes OIDC configuration from environment variables
@@ -245,67 +285,13 @@ func OIDCCallbackHandler(c *gin.Context) {
 		return
 	}
 
-	// Verify ID token
-	idToken, err := oidcVerifier.Verify(ctx, rawIDToken)
+	identity, err := verifyOIDCIdentity(ctx, rawIDToken, nonce)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify ID token"})
-		return
-	}
-
-	// Verify nonce
-	if idToken.Nonce != nonce {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid nonce"})
-		return
-	}
-
-	// Extract raw claims first for debug logging
-	var rawClaims map[string]interface{}
-	if err := idToken.Claims(&rawClaims); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to extract raw claims"})
-		return
-	}
-
-	// Debug log raw claims from OIDC provider
-	if rawClaimsJSON, err := json.MarshalIndent(rawClaims, "", "  "); err == nil {
-		oidcDebugLog("Raw claims from OIDC provider:\n%s", string(rawClaimsJSON))
-	} else {
-		oidcDebugLog("Raw claims from OIDC provider (failed to serialize): %+v", rawClaims)
-	}
-
-	// Extract claims into our structured format
-	var claims struct {
-		Email             string   `json:"email"`
-		Name              string   `json:"name"`
-		PreferredUsername string   `json:"preferred_username"`
-		Subject           string   `json:"sub"`
-		EmailVerified     bool     `json:"email_verified"`
-		Groups            []string `json:"groups"`
-	}
-
-	if err := idToken.Claims(&claims); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to extract claims"})
-		return
-	}
-
-	// Debug log parsed claims
-	if claimsJSON, err := json.Marshal(claims); err == nil {
-		oidcDebugLog("Parsed claims: %s", string(claimsJSON))
-	} else {
-		oidcDebugLog("Parsed claims (failed to serialize): email=%s, name=%s, preferred_username=%s, subject=%s, email_verified=%t, groups=%v",
-			claims.Email, claims.Name, claims.PreferredUsername, claims.Subject, claims.EmailVerified, claims.Groups)
-	}
-
-	// Determine username - prefer preferred_username, fallback to email, then subject
-	username := claims.PreferredUsername
-	if username == "" {
-		username = claims.Email
-	}
-	if username == "" {
-		username = claims.Subject
-	}
-
-	if username == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No suitable username claim found"})
+		status := http.StatusInternalServerError
+		if errors.Is(err, errInvalidNonce) || errors.Is(err, errMissingUsername) {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -316,7 +302,8 @@ func OIDCCallbackHandler(c *gin.Context) {
 	}
 
 	// Handle user authentication in multi-user mode
-	if err := handleOIDCMultiUserAuth(c, username, claims.Email, claims.Name, claims.Subject, claims.Groups, rawIDToken); err != nil {
+	user, err := authenticateOIDCMultiUser(identity.Username, identity.Email, identity.Name, identity.Subject, identity.Groups)
+	if err != nil {
 		if err.Error() == "account disabled" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "backend.auth.account_disabled"})
 		} else {
@@ -324,10 +311,15 @@ func OIDCCallbackHandler(c *gin.Context) {
 		}
 		return
 	}
+	if err := issueOIDCSession(c, user, rawIDToken); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
+		return
+	}
+	redirectOIDCSuccess(c)
 }
 
-// handleOIDCMultiUserAuth handles OIDC authentication in multi-user mode
-func handleOIDCMultiUserAuth(c *gin.Context, username, email, name, subject string, groups []string, rawIDToken string) error {
+// authenticateOIDCMultiUser resolves and updates the Aviary account for an OIDC identity.
+func authenticateOIDCMultiUser(username, email, name, subject string, groups []string) (*database.User, error) {
 	var user *database.User
 	var err error
 
@@ -346,13 +338,13 @@ func handleOIDCMultiUserAuth(c *gin.Context, username, email, name, subject stri
 				oidcDebugLog("OIDC_AUTO_CREATE_USERS setting: %s", autoCreateUsers)
 				if autoCreateUsers != "true" && autoCreateUsers != "1" {
 					oidcDebugLog("Auto-creation disabled, rejecting user creation")
-					return fmt.Errorf("user not found and auto-creation disabled")
+					return nil, fmt.Errorf("user not found and auto-creation disabled")
 				}
 
 				// Check if this would be the first user (for admin privileges)
 				var userCount int64
 				if err := database.DB.Model(&database.User{}).Count(&userCount).Error; err != nil {
-					return fmt.Errorf("failed to check user count: %w", err)
+					return nil, fmt.Errorf("failed to check user count: %w", err)
 				}
 				firstUser := userCount == 0
 				oidcDebugLog("User count: %d, firstUser: %t", userCount, firstUser)
@@ -364,7 +356,7 @@ func handleOIDCMultiUserAuth(c *gin.Context, username, email, name, subject stri
 				// Check if this would be the first admin user
 				var adminCount int64
 				if err := database.DB.Model(&database.User{}).Where("is_admin = ?", true).Count(&adminCount).Error; err != nil {
-					return fmt.Errorf("failed to check admin count: %w", err)
+					return nil, fmt.Errorf("failed to check admin count: %w", err)
 				}
 				firstAdminUser := adminCount == 0
 
@@ -374,7 +366,7 @@ func handleOIDCMultiUserAuth(c *gin.Context, username, email, name, subject stri
 				user, err = userService.CreateUser(username, email, "", isAdmin) // Empty password for OIDC users
 				if err != nil {
 					oidcDebugLog("Failed to create user: %v", err)
-					return fmt.Errorf("failed to create user: %w", err)
+					return nil, fmt.Errorf("failed to create user: %w", err)
 				}
 				oidcDebugLog("Successfully created new user with ID: %s", user.ID)
 
@@ -391,7 +383,7 @@ func handleOIDCMultiUserAuth(c *gin.Context, username, email, name, subject stri
 				oidcDebugLog("Found existing user %s via email, linking to OIDC subject %s", user.Username, subject)
 				if err := database.DB.Model(user).Update("oidc_subject", subject).Error; err != nil {
 					oidcDebugLog("Failed to link existing user to OIDC subject: %v", err)
-					return fmt.Errorf("failed to link existing user to OIDC subject: %w", err)
+					return nil, fmt.Errorf("failed to link existing user to OIDC subject: %w", err)
 				}
 				oidcDebugLog("Successfully linked user %s to OIDC subject", user.Username)
 			}
@@ -399,7 +391,7 @@ func handleOIDCMultiUserAuth(c *gin.Context, username, email, name, subject stri
 			oidcDebugLog("Found existing user %s via username, linking to OIDC subject %s", user.Username, subject)
 			if err := database.DB.Model(user).Update("oidc_subject", subject).Error; err != nil {
 				oidcDebugLog("Failed to link existing user to OIDC subject: %v", err)
-				return fmt.Errorf("failed to link existing user to OIDC subject: %w", err)
+				return nil, fmt.Errorf("failed to link existing user to OIDC subject: %w", err)
 			}
 			oidcDebugLog("Successfully linked user %s to OIDC subject", user.Username)
 		}
@@ -456,11 +448,11 @@ func handleOIDCMultiUserAuth(c *gin.Context, username, email, name, subject stri
 		updates["updated_at"] = now
 		if err := database.DB.Model(user).Updates(updates).Error; err != nil {
 			oidcDebugLog("Failed to update user: %v", err)
-			return fmt.Errorf("failed to update user: %w", err)
+			return nil, fmt.Errorf("failed to update user: %w", err)
 		}
 		// Refresh user object to reflect updates
 		if err := database.DB.First(user, user.ID).Error; err != nil {
-			return fmt.Errorf("failed to refresh user: %w", err)
+			return nil, fmt.Errorf("failed to refresh user: %w", err)
 		}
 		oidcDebugLog("Successfully updated user")
 	} else {
@@ -471,10 +463,12 @@ func handleOIDCMultiUserAuth(c *gin.Context, username, email, name, subject stri
 	oidcDebugLog("Checking if user %s is active: %t", user.Username, user.IsActive)
 	if !user.IsActive {
 		oidcDebugLog("User account is disabled, rejecting authentication")
-		return fmt.Errorf("account disabled")
+		return nil, fmt.Errorf("account disabled")
 	}
+	return user, nil
+}
 
-	// Generate JWT token
+func issueOIDCSession(c *gin.Context, user *database.User, rawIDToken string) error {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id":     user.ID.String(),
 		"username":    user.Username,
@@ -486,28 +480,24 @@ func handleOIDCMultiUserAuth(c *gin.Context, username, email, name, subject stri
 		"aud":         "aviary-web",
 		"auth_method": "oidc",
 	})
-
 	tokenString, err := token.SignedString(jwtSecret)
 	if err != nil {
 		return fmt.Errorf("failed to sign token: %w", err)
 	}
 
-	// Set secure cookie
 	secure := !allowInsecure()
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie("auth_token", tokenString, int(sessionTimeout.Seconds()), "/", "", secure, true)
-
-	// Store ID token for logout (in a separate cookie)
 	c.SetCookie("oidc_id_token", rawIDToken, int(sessionTimeout.Seconds()), "/", "", secure, true)
+	return nil
+}
 
-	// Redirect to frontend
+func redirectOIDCSuccess(c *gin.Context) {
 	redirectURL := config.Get("OIDC_SUCCESS_REDIRECT_URL", "")
 	if redirectURL == "" {
-		redirectURL = "/" // Default to home page
+		redirectURL = "/"
 	}
-	oidcDebugLog("OIDC authentication successful for user %s (ID: %s, admin: %t), redirecting to: %s", user.Username, user.ID, user.IsAdmin, redirectURL)
 	c.Redirect(http.StatusFound, redirectURL)
-	return nil
 }
 
 // generateState generates a secure random state parameter

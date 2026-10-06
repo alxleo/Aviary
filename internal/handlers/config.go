@@ -93,19 +93,20 @@ func ConfigHandler(c *gin.Context) {
 	}
 
 	response := gin.H{
-		"apiUrl":           "/api/",
-		"authEnabled":      authEnabled,
-		"apiKeyEnabled":    apiKeyEnabled,
-		"multiUserMode":    multiUserMode,
-		"defaultRmDir":     defaultRmDir,
-		"rmapi_host":       rmapiHost,
-		"smtpConfigured":   smtpConfigured,
-		"oidcEnabled":      oidcEnabled,
-		"oidcSsoOnly":      oidcSsoOnly,
-		"oidcButtonText":   oidcButtonText,
-		"proxyAuthEnabled": proxyAuthEnabled,
-		"oidcGroupBasedAdmin":       auth.IsOIDCGroupBasedAdminEnabled(),
-		"experimentalDownloadLink":  config.GetBool("EXPERIMENTAL_DOWNLOAD_LINK", false),
+		"apiUrl":                   "/api/",
+		"authEnabled":              authEnabled,
+		"apiKeyEnabled":            apiKeyEnabled,
+		"multiUserMode":            multiUserMode,
+		"defaultRmDir":             defaultRmDir,
+		"rmapi_host":               rmapiHost,
+		"smtpConfigured":           smtpConfigured,
+		"oidcEnabled":              oidcEnabled,
+		"oidcDeviceLoginEnabled":   auth.IsOIDCDeviceLoginEnabled(),
+		"oidcSsoOnly":              oidcSsoOnly,
+		"oidcButtonText":           oidcButtonText,
+		"proxyAuthEnabled":         proxyAuthEnabled,
+		"oidcGroupBasedAdmin":      auth.IsOIDCGroupBasedAdminEnabled(),
+		"experimentalDownloadLink": config.GetBool("EXPERIMENTAL_DOWNLOAD_LINK", false),
 	}
 
 	// Add single-user mode specific settings
