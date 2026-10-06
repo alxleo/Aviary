@@ -244,7 +244,7 @@ func OIDCCallbackHandler(c *gin.Context) {
 
 	// Get nonce from cookie
 	nonce, err := c.Cookie("oidc_nonce")
-	if err != nil {
+	if err != nil || nonce == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing nonce"})
 		return
 	}

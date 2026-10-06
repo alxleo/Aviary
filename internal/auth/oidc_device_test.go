@@ -152,13 +152,14 @@ func TestOIDCDeviceLoginBoundary(t *testing.T) {
 		t.Fatalf("start status = %d, body = %s", start.Code, start.Body)
 	}
 	var startData struct {
-		Status string `json:"status"`
-		Link   string `json:"verification_uri_complete"`
+		Status    string `json:"status"`
+		Link      string `json:"verification_uri_complete"`
+		AttemptID string `json:"attempt_id"`
 	}
 	decodeJSON(t, start.Body, &startData)
 	var startPayload map[string]json.RawMessage
 	decodeJSON(t, start.Body, &startPayload)
-	if startData.Status != string(deviceLoginPending) || !strings.HasPrefix(startData.Link, provider.URL+"/verify?") {
+	if startData.Status != string(deviceLoginPending) || startData.AttemptID == "" || !strings.HasPrefix(startData.Link, provider.URL+"/verify?") {
 		t.Fatalf("unexpected device start response: %s", start.Body)
 	}
 	if _, exposed := startPayload["device_code"]; exposed {
@@ -174,7 +175,7 @@ func TestOIDCDeviceLoginBoundary(t *testing.T) {
 		t.Fatal("device start issued an auth cookie")
 	}
 
-	pending := getJSON(t, client, app.URL+"/api/auth/oidc/device/status")
+	pending := getJSON(t, client, app.URL+"/api/auth/oidc/device/status?attempt_id="+url.QueryEscape(startData.AttemptID))
 	if pending.Code != http.StatusOK || !strings.Contains(pending.Body, `"status":"pending"`) {
 		t.Fatalf("pending status = %d, body = %s", pending.Code, pending.Body)
 	}
@@ -185,7 +186,7 @@ func TestOIDCDeviceLoginBoundary(t *testing.T) {
 	if _, err := http.Get(startData.Link); err != nil {
 		t.Fatal(err)
 	}
-	approvedStatus := waitForStatus(t, client, app.URL+"/api/auth/oidc/device/status", `"status":"approved"`)
+	approvedStatus := waitForStatus(t, client, app.URL+"/api/auth/oidc/device/status?attempt_id="+url.QueryEscape(startData.AttemptID), `"status":"approved"`)
 	if approvedStatus.HasAuthCookie {
 		t.Fatal("approved GET status issued an auth cookie")
 	}
@@ -193,12 +194,15 @@ func TestOIDCDeviceLoginBoundary(t *testing.T) {
 		t.Fatal("device worker did not poll the token endpoint")
 	}
 
-	finish := postJSON(t, client, app.URL+"/api/auth/oidc/device/finish", app.URL)
+	finish := postDeviceJSON(t, client, app.URL+"/api/auth/oidc/device/finish", app.URL, startData.AttemptID)
 	if finish.Code != http.StatusOK || !strings.Contains(finish.Body, `"authenticated":true`) {
 		t.Fatalf("finish status = %d, body = %s", finish.Code, finish.Body)
 	}
 	if !finish.HasAuthCookie {
 		t.Fatal("finish did not issue an auth cookie")
+	}
+	if finish.HasHttpOnlyProof {
+		t.Fatal("finish mutated the proof cookie after authentication")
 	}
 	authCheck := getJSON(t, client, app.URL+"/api/auth/check")
 	if authCheck.Code != http.StatusOK || !strings.Contains(authCheck.Body, `"authenticated":true`) {
@@ -206,6 +210,77 @@ func TestOIDCDeviceLoginBoundary(t *testing.T) {
 	}
 	if deviceStarts.Load() != 1 {
 		t.Fatalf("unexpected device start calls after finish: %d", deviceStarts.Load())
+	}
+
+	approved.Store(false)
+	secondStart := postJSON(t, client, app.URL+"/api/auth/oidc/device/start", app.URL)
+	if secondStart.Code != http.StatusOK {
+		t.Fatalf("second start status = %d, body = %s", secondStart.Code, secondStart.Body)
+	}
+	var secondStartData struct {
+		AttemptID string `json:"attempt_id"`
+		Link      string `json:"verification_uri_complete"`
+	}
+	decodeJSON(t, secondStart.Body, &secondStartData)
+	if secondStartData.AttemptID == "" || secondStartData.Link == "" {
+		t.Fatalf("second start omitted attempt binding: %s", secondStart.Body)
+	}
+	staleStatus := getJSON(t, client, app.URL+"/api/auth/oidc/device/status?attempt_id="+url.QueryEscape(startData.AttemptID))
+	if staleStatus.Code != http.StatusOK || !strings.Contains(staleStatus.Body, `"status":"expired"`) || staleStatus.HasHttpOnlyProof {
+		t.Fatalf("stale status response = %d, body = %s, proof cookie = %t", staleStatus.Code, staleStatus.Body, staleStatus.HasHttpOnlyProof)
+	}
+	staleFinish := postDeviceJSON(t, client, app.URL+"/api/auth/oidc/device/finish", app.URL, startData.AttemptID)
+	if staleFinish.Code != http.StatusGone || staleFinish.HasHttpOnlyProof {
+		t.Fatalf("stale finish response = %d, body = %s, proof cookie = %t", staleFinish.Code, staleFinish.Body, staleFinish.HasHttpOnlyProof)
+	}
+	staleCancel := postDeviceJSON(t, client, app.URL+"/api/auth/oidc/device/cancel", app.URL, startData.AttemptID)
+	if staleCancel.Code != http.StatusOK || staleCancel.HasHttpOnlyProof {
+		t.Fatalf("stale cancel response = %d, body = %s, proof cookie = %t", staleCancel.Code, staleCancel.Body, staleCancel.HasHttpOnlyProof)
+	}
+	secondPending := getJSON(t, client, app.URL+"/api/auth/oidc/device/status?attempt_id="+url.QueryEscape(secondStartData.AttemptID))
+	if secondPending.Code != http.StatusOK || !strings.Contains(secondPending.Body, `"status":"pending"`) {
+		t.Fatalf("replacement attempt was changed by stale cancel: %d, body = %s", secondPending.Code, secondPending.Body)
+	}
+	if _, err := http.Get(secondStartData.Link); err != nil {
+		t.Fatal(err)
+	}
+	waitForStatus(t, client, app.URL+"/api/auth/oidc/device/status?attempt_id="+url.QueryEscape(secondStartData.AttemptID), `"status":"approved"`)
+	firstFinishClient := cloneClientWithCookies(t, client, app.URL)
+	secondFinishClient := cloneClientWithCookies(t, client, app.URL)
+	results := make(chan boundaryResponse, 2)
+	go func() {
+		results <- postDeviceJSON(t, firstFinishClient, app.URL+"/api/auth/oidc/device/finish", app.URL, secondStartData.AttemptID)
+	}()
+	go func() {
+		results <- postDeviceJSON(t, secondFinishClient, app.URL+"/api/auth/oidc/device/finish", app.URL, secondStartData.AttemptID)
+	}()
+	firstResult, secondResult := <-results, <-results
+	if !((firstResult.Code == http.StatusOK && secondResult.Code == http.StatusGone) || (firstResult.Code == http.StatusGone && secondResult.Code == http.StatusOK)) {
+		t.Fatalf("concurrent finish statuses = %d and %d, want one 200 and one 410", firstResult.Code, secondResult.Code)
+	}
+	if (firstResult.Code == http.StatusGone && firstResult.HasHttpOnlyProof) || (secondResult.Code == http.StatusGone && secondResult.HasHttpOnlyProof) {
+		t.Fatal("late concurrent finish returned a proof-cookie mutation")
+	}
+	if deviceStarts.Load() != 2 {
+		t.Fatalf("device endpoint calls = %d, want 2", deviceStarts.Load())
+	}
+}
+
+func TestOIDCCallbackRejectsEmptyNonce(t *testing.T) {
+	oldOIDCEnabled := oidcEnabled
+	t.Cleanup(func() { oidcEnabled = oldOIDCEnabled })
+	oidcEnabled = true
+
+	router := gin.New()
+	router.GET("/callback", OIDCCallbackHandler)
+	request := httptest.NewRequest(http.MethodGet, "/callback?state=expected-state&code=unused", nil)
+	request.AddCookie(&http.Cookie{Name: "oidc_state", Value: "expected-state"})
+	request.AddCookie(&http.Cookie{Name: "oidc_nonce", Value: ""})
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("empty browser nonce status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
 
@@ -239,6 +314,37 @@ func postJSON(t *testing.T, client *http.Client, endpoint, origin string) bounda
 	}
 	defer resp.Body.Close()
 	return responseDetails(t, resp)
+}
+
+func postDeviceJSON(t *testing.T, client *http.Client, endpoint, origin, attemptID string) boundaryResponse {
+	t.Helper()
+	body, err := json.Marshal(map[string]string{"attempt_id": attemptID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(string(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", origin)
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	return responseDetails(t, resp)
+}
+
+func cloneClientWithCookies(t *testing.T, source *http.Client, endpoint string) *http.Client {
+	t.Helper()
+	clone := clientWithCookies(t)
+	parsed, err := url.Parse(endpoint + "/api/auth/oidc/device")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone.Jar.SetCookies(parsed, source.Jar.Cookies(parsed))
+	return clone
 }
 
 func getJSON(t *testing.T, client *http.Client, endpoint string) boundaryResponse {

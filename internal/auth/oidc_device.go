@@ -36,6 +36,7 @@ const (
 
 type deviceLoginTransaction struct {
 	proof     string
+	attemptID string
 	device    oauth2.DeviceAuthResponse
 	expiresAt time.Time
 	cancel    context.CancelFunc
@@ -53,7 +54,10 @@ type deviceLoginStore struct {
 var pendingDeviceLogins = newDeviceLoginStore()
 
 func newDeviceLoginStore() *deviceLoginStore {
-	cache := ttlcache.New[string, *deviceLoginTransaction](ttlcache.WithCapacity[string, *deviceLoginTransaction](maxPendingDeviceLogins))
+	cache := ttlcache.New[string, *deviceLoginTransaction](
+		ttlcache.WithCapacity[string, *deviceLoginTransaction](maxPendingDeviceLogins),
+		ttlcache.WithDisableTouchOnHit[string, *deviceLoginTransaction](),
+	)
 	cache.OnEviction(func(_ context.Context, _ ttlcache.EvictionReason, item *ttlcache.Item[string, *deviceLoginTransaction]) {
 		item.Value().cancel()
 	})
@@ -88,27 +92,49 @@ func (s *deviceLoginStore) add(transaction *deviceLoginTransaction) {
 	s.mu.Unlock()
 }
 
-func (s *deviceLoginStore) cancel(proof string) {
+func (s *deviceLoginStore) cancel(proof, attemptID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item := s.cache.Get(proof)
+	if item == nil || item.Value().attemptID != attemptID {
+		return
+	}
 	s.cache.Delete(proof)
 }
 
-func (s *deviceLoginStore) status(proof string) deviceLoginStatus {
-	item := s.cache.Get(proof)
-	if item == nil {
-		return deviceLoginExpired
-	}
+func (s *deviceLoginStore) cancelProof(proof string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return item.Value().status
+	s.cache.Delete(proof)
+}
+
+func (s *deviceLoginStore) status(proof, attemptID string) deviceLoginStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	item := s.cache.Get(proof)
+	if item == nil || item.Value().attemptID != attemptID {
+		return deviceLoginExpired
+	}
+	transaction := item.Value()
+	if time.Now().After(transaction.expiresAt) {
+		s.cache.Delete(proof)
+		return deviceLoginExpired
+	}
+	return transaction.status
 }
 
 func (s *deviceLoginStore) complete(proof string, token *oauth2.Token, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	item := s.cache.Get(proof)
 	if item == nil {
 		return
 	}
-	s.mu.Lock()
 	transaction := item.Value()
+	if time.Now().After(transaction.expiresAt) {
+		s.cache.Delete(proof)
+		return
+	}
 	if err == nil {
 		transaction.status = deviceLoginApproved
 		transaction.token = token
@@ -117,16 +143,15 @@ func (s *deviceLoginStore) complete(proof string, token *oauth2.Token, err error
 	} else {
 		transaction.status = deviceLoginFailed
 	}
-	s.mu.Unlock()
 }
 
-func (s *deviceLoginStore) takeApproved(proof string) (*oauth2.Token, deviceLoginStatus) {
-	item := s.cache.Get(proof)
-	if item == nil {
-		return nil, deviceLoginExpired
-	}
+func (s *deviceLoginStore) takeApproved(proof, attemptID string) (*oauth2.Token, deviceLoginStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	item := s.cache.Get(proof)
+	if item == nil || item.Value().attemptID != attemptID {
+		return nil, deviceLoginExpired
+	}
 	transaction := item.Value()
 	if time.Now().After(transaction.expiresAt) {
 		s.cache.Delete(proof)
@@ -161,7 +186,7 @@ func OIDCDeviceStartHandler(c *gin.Context) {
 	}
 
 	if oldProof, err := c.Cookie(deviceLoginProofCookie); err == nil {
-		pendingDeviceLogins.cancel(oldProof)
+		pendingDeviceLogins.cancelProof(oldProof)
 	}
 	if !pendingDeviceLogins.reserve() {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Too many pending device logins"})
@@ -188,6 +213,12 @@ func OIDCDeviceStartHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start device login"})
 		return
 	}
+	attemptID, err := newDeviceLoginAttemptID()
+	if err != nil {
+		pendingDeviceLogins.releaseReservation()
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start device login"})
+		return
+	}
 	expiresAt := time.Now().Add(deviceLoginTTL)
 	if !deviceAuth.Expiry.IsZero() && deviceAuth.Expiry.Before(expiresAt) {
 		expiresAt = deviceAuth.Expiry
@@ -201,6 +232,7 @@ func OIDCDeviceStartHandler(c *gin.Context) {
 	ctx, cancel := context.WithDeadline(context.Background(), expiresAt)
 	transaction := &deviceLoginTransaction{
 		proof:     proof,
+		attemptID: attemptID,
 		device:    *deviceAuth,
 		expiresAt: expiresAt,
 		cancel:    cancel,
@@ -215,6 +247,7 @@ func OIDCDeviceStartHandler(c *gin.Context) {
 		"verification_uri_complete": deviceAuth.VerificationURIComplete,
 		"verification_uri":          deviceAuth.VerificationURI,
 		"user_code":                 deviceAuth.UserCode,
+		"attempt_id":                attemptID,
 	})
 }
 
@@ -229,10 +262,12 @@ func OIDCDeviceStatusHandler(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"status": deviceLoginExpired})
 		return
 	}
-	status := pendingDeviceLogins.status(proof)
-	if status == deviceLoginExpired || status == deviceLoginFailed {
-		clearDeviceLoginProofCookie(c)
+	attemptID := strings.TrimSpace(c.Query("attempt_id"))
+	if attemptID == "" {
+		c.JSON(http.StatusNotFound, gin.H{"status": deviceLoginExpired})
+		return
 	}
+	status := pendingDeviceLogins.status(proof, attemptID)
 	c.JSON(http.StatusOK, gin.H{"status": status})
 }
 
@@ -245,42 +280,41 @@ func OIDCDeviceFinishHandler(c *gin.Context) {
 	if !requireSameOrigin(c) {
 		return
 	}
+	request, ok := bindDeviceLoginRequest(c)
+	if !ok {
+		return
+	}
 	proof, err := c.Cookie(deviceLoginProofCookie)
 	if err != nil || proof == "" {
 		c.JSON(http.StatusNotFound, gin.H{"status": deviceLoginExpired})
 		return
 	}
-	token, status := pendingDeviceLogins.takeApproved(proof)
+	token, status := pendingDeviceLogins.takeApproved(proof, request.AttemptID)
 	if status == deviceLoginPending {
 		c.JSON(http.StatusAccepted, gin.H{"status": status})
 		return
 	}
 	if status != deviceLoginApproved || token == nil {
-		clearDeviceLoginProofCookie(c)
 		c.JSON(http.StatusGone, gin.H{"status": status})
 		return
 	}
 
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok || rawIDToken == "" {
-		clearDeviceLoginProofCookie(c)
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Device login provider returned no ID token"})
 		return
 	}
 	identity, err := verifyOIDCIdentity(context.Background(), rawIDToken, "")
 	if err != nil {
-		clearDeviceLoginProofCookie(c)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Failed to verify device login"})
 		return
 	}
 	if !database.IsMultiUserMode() {
-		clearDeviceLoginProofCookie(c)
 		c.JSON(http.StatusNotImplemented, gin.H{"error": "OIDC authentication requires multi-user mode"})
 		return
 	}
 	user, err := authenticateOIDCMultiUser(identity.Username, identity.Email, identity.Name, identity.Subject, identity.Groups)
 	if err != nil {
-		clearDeviceLoginProofCookie(c)
 		if err.Error() == "account disabled" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "backend.auth.account_disabled"})
 		} else {
@@ -289,11 +323,9 @@ func OIDCDeviceFinishHandler(c *gin.Context) {
 		return
 	}
 	if err := issueOIDCSession(c, user, rawIDToken); err != nil {
-		clearDeviceLoginProofCookie(c)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session"})
 		return
 	}
-	clearDeviceLoginProofCookie(c)
 	c.JSON(http.StatusOK, gin.H{"authenticated": true})
 }
 
@@ -306,10 +338,13 @@ func OIDCDeviceCancelHandler(c *gin.Context) {
 	if !requireSameOrigin(c) {
 		return
 	}
-	if proof, err := c.Cookie(deviceLoginProofCookie); err == nil && proof != "" {
-		pendingDeviceLogins.cancel(proof)
+	request, ok := bindDeviceLoginRequest(c)
+	if !ok {
+		return
 	}
-	clearDeviceLoginProofCookie(c)
+	if proof, err := c.Cookie(deviceLoginProofCookie); err == nil && proof != "" {
+		pendingDeviceLogins.cancel(proof, request.AttemptID)
+	}
 	c.JSON(http.StatusOK, gin.H{"status": deviceLoginExpired})
 }
 
@@ -326,11 +361,33 @@ func deviceLoginOAuthOptions() []oauth2.AuthCodeOption {
 }
 
 func newDeviceLoginProof() (string, error) {
+	return newDeviceLoginOpaqueID()
+}
+
+func newDeviceLoginAttemptID() (string, error) {
+	return newDeviceLoginOpaqueID()
+}
+
+func newDeviceLoginOpaqueID() (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+type deviceLoginRequest struct {
+	AttemptID string `json:"attempt_id"`
+}
+
+func bindDeviceLoginRequest(c *gin.Context) (deviceLoginRequest, bool) {
+	var request deviceLoginRequest
+	if err := c.ShouldBindJSON(&request); err != nil || strings.TrimSpace(request.AttemptID) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Missing device login attempt"})
+		return deviceLoginRequest{}, false
+	}
+	request.AttemptID = strings.TrimSpace(request.AttemptID)
+	return request, true
 }
 
 func setDeviceLoginProofCookie(c *gin.Context, proof string, expiresAt time.Time) {
@@ -341,12 +398,6 @@ func setDeviceLoginProofCookie(c *gin.Context, proof string, expiresAt time.Time
 		maxAge = 1
 	}
 	c.SetCookie(deviceLoginProofCookie, proof, maxAge, "/api/auth/oidc/device", "", secure, true)
-}
-
-func clearDeviceLoginProofCookie(c *gin.Context) {
-	secure := !allowInsecure()
-	c.SetSameSite(http.SameSiteStrictMode)
-	c.SetCookie(deviceLoginProofCookie, "", -1, "/api/auth/oidc/device", "", secure, true)
 }
 
 func setDeviceLoginNoStore(c *gin.Context) {
