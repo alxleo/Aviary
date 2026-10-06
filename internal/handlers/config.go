@@ -20,6 +20,8 @@ func ConfigHandler(c *gin.Context) {
 	var multiUserMode = database.IsMultiUserMode()
 	var defaultRmDir string
 	var rmapiHost string
+	var rmapiPaired bool
+	var rmapiShared bool
 
 	if multiUserMode {
 		// In multi-user mode, auth is always enabled
@@ -36,8 +38,12 @@ func ConfigHandler(c *gin.Context) {
 					defaultRmDir = manager.DefaultRmDir()
 				}
 
-				// Use user-specific rmapi host if set, empty string for official cloud
-				rmapiHost = dbUser.RmapiHost
+				// Expose the caller's effective destination. A shared borrower gets
+				// the owner's host and pairing state without exposing the owner.
+				destination := rmapi.DestinationStatusForUser(dbUser)
+				rmapiHost = destination.Host
+				rmapiPaired = destination.Paired
+				rmapiShared = destination.Shared
 			} else {
 				// Fallback to global defaults
 				defaultRmDir = manager.DefaultRmDir()
@@ -60,22 +66,13 @@ func ConfigHandler(c *gin.Context) {
 		apiKeyEnabled = envApiKey != ""
 		defaultRmDir = manager.DefaultRmDir()
 		rmapiHost = config.Get("RMAPI_HOST", "")
+		rmapiPaired = rmapi.IsUserPaired(uuid.Nil)
 	}
 
 	// Check SMTP configuration (only in multi-user mode)
 	smtpConfigured := false
 	if multiUserMode {
 		smtpConfigured = smtp.IsSMTPConfigured()
-	}
-
-	// Check rmapi pairing status
-	rmapiPaired := false
-	if multiUserMode {
-		// In multi-user mode, pairing status is per-user and handled by /api/auth/check
-		// We don't include it here as it requires user context
-	} else {
-		// In single-user mode, check the global rmapi.conf file
-		rmapiPaired = rmapi.IsUserPaired(uuid.Nil)
 	}
 
 	// Check authentication methods (multi-user mode only)
@@ -99,6 +96,8 @@ func ConfigHandler(c *gin.Context) {
 		"multiUserMode":            multiUserMode,
 		"defaultRmDir":             defaultRmDir,
 		"rmapi_host":               rmapiHost,
+		"rmapi_paired":             rmapiPaired,
+		"rmapi_shared":             rmapiShared,
 		"smtpConfigured":           smtpConfigured,
 		"oidcEnabled":              oidcEnabled,
 		"oidcDeviceLoginEnabled":   auth.IsOIDCDeviceLoginEnabled(),
@@ -111,7 +110,6 @@ func ConfigHandler(c *gin.Context) {
 
 	// Add single-user mode specific settings
 	if !multiUserMode {
-		response["rmapi_paired"] = rmapiPaired
 		response["pdf_background_removal"] = config.GetBool("PDF_BACKGROUND_REMOVAL", false)
 	}
 

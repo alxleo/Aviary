@@ -18,13 +18,24 @@ func IsUserPaired(userID uuid.UUID) bool {
 	}
 
 	if database.IsMultiUserMode() {
-		return isMultiUserPaired(userID)
+		user, err := loadUserByID(userID)
+		if err != nil {
+			return false
+		}
+		effective, _, err := ResolveEffectiveUser(user)
+		if err != nil {
+			return false
+		}
+		return isMultiUserPaired(effective.ID)
 	}
 	return isSingleUserPaired()
 }
 
 // isMultiUserPaired checks if user has rmapi config in database
 func isMultiUserPaired(userID uuid.UUID) bool {
+	if database.DB == nil {
+		return false
+	}
 	var user database.User
 	if err := database.DB.Select("rmapi_config").Where("id = ?", userID).First(&user).Error; err != nil {
 		return false

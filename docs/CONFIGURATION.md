@@ -32,6 +32,8 @@ This is particularly useful when using Docker secrets, Kubernetes secrets, or ot
 | DISABLE_UI               | No        | false   | Set `true` to disable the UI routes and run in API-only mode |
 | PDF_DIR                  | No        | /app/pdfs| Directory to archive PDFs into (filesystem storage only) |
 | RMAPI_HOST               | No        |         | Self-hosted endpoint to use for rmapi (single-user mode only) |
+| RMAPI_SHARED_USER_ID     | No        |         | Multi-user only: UUID of an active Aviary user whose rmapi destination is shared by other authenticated users |
+| OIDC_AUTO_LINK_USERS     | No        | true    | Multi-user only: allow legacy username/email matching when an OIDC subject is not already linked |
 | RMAPI_COVERPAGE          | No        |         | Set to `first` to add `--coverpage=1` flag to rmapi put commands, used as the default in multi-user mode |
 | RMAPI_CONFLICT_RESOLUTION| No        | abort   | Default conflict resolution mode: `abort`, `overwrite`, or `content_only` |
 | RMAPI_FOLDER_DEPTH_LIMIT | No        | 0       | Limit folder traversal depth (0 = no limit, used as the default in multi-user mode) |

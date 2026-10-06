@@ -77,7 +77,10 @@ func RefreshUserFolderCache(userID string) error {
 func ListFolders(user *database.User) ([]string, error) {
 	// Check pairing status based on mode
 	if database.IsMultiUserMode() {
-		if user != nil && !rmapi.IsUserPaired(user.ID) {
+		if user == nil {
+			return nil, fmt.Errorf("authenticated user required in multi-user mode")
+		}
+		if !rmapi.IsUserPaired(user.ID) {
 			return nil, fmt.Errorf("user %s not paired", user.ID)
 		}
 	} else {
@@ -89,11 +92,11 @@ func ListFolders(user *database.User) ([]string, error) {
 	// Parse user-specific folder settings
 	var folderDepthLimit int
 	var excludedFolders map[string]bool
-	
+
 	if user != nil {
 		folderDepthLimit = user.FolderDepthLimit
 		excludedFolders = make(map[string]bool)
-		
+
 		// Parse exclusion list (comma-separated)
 		if user.FolderExclusionList != "" {
 			exclusions := strings.Split(user.FolderExclusionList, ",")
@@ -127,7 +130,10 @@ func ListFolders(user *database.User) ([]string, error) {
 		if p != "" {
 			args = append(args, p)
 		}
-		cmd, cleanup := rmapi.NewCommand(user, args...)
+		cmd, cleanup, err := rmapi.NewCommand(user, args...)
+		if err != nil {
+			return err
+		}
 		defer cleanup()
 		out, err := cmd.Output()
 		if err != nil {

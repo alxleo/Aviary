@@ -8,8 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/rmitchellscott/aviary/internal/database"
+	"github.com/rmitchellscott/aviary/internal/rmapi"
 )
-
 
 // UpdateUserRequest represents a user update request
 type UpdateUserRequest struct {
@@ -28,7 +28,7 @@ type UpdateUserRequest struct {
 	IsAdmin                *bool    `json:"is_admin,omitempty"`
 	IsActive               *bool    `json:"is_active,omitempty"`
 	// PDF processing
-	PDFBackgroundRemoval *bool `json:"pdf_background_removal,omitempty"`
+	PDFBackgroundRemoval     *bool `json:"pdf_background_removal,omitempty"`
 	ExperimentalDownloadLink *bool `json:"experimental_download_link,omitempty"`
 }
 
@@ -53,7 +53,6 @@ type SelfDeleteRequest struct {
 	CurrentPassword string `json:"current_password" binding:"required"`
 	Confirmation    string `json:"confirmation" binding:"required"`
 }
-
 
 // GetUsersHandler returns all users (admin only)
 func GetUsersHandler(c *gin.Context) {
@@ -189,6 +188,18 @@ func UpdateUserHandler(c *gin.Context) {
 		return
 	}
 
+	var targetUser database.User
+	if err := database.DB.Where("id = ?", userID).First(&targetUser).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+	if req.RmapiHost != nil {
+		if shared, err := rmapi.IsSharedBorrower(&targetUser); err != nil || shared {
+			c.JSON(http.StatusForbidden, gin.H{"error": "rmapi destination is managed by the shared owner"})
+			return
+		}
+	}
+
 	// Build update map
 	updates := make(map[string]interface{})
 	if req.Username != nil && *req.Username != "" {
@@ -311,6 +322,12 @@ func UpdateCurrentUserHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": validationErrorMessage(err)})
 		return
 	}
+	if req.RmapiHost != nil {
+		if shared, err := rmapi.IsSharedBorrower(user); err != nil || shared {
+			c.JSON(http.StatusForbidden, gin.H{"error": "rmapi destination is managed by the shared owner"})
+			return
+		}
+	}
 
 	// Build update map (non-admin users can't change admin/active status)
 	updates := make(map[string]interface{})
@@ -427,7 +444,6 @@ func UpdatePasswordHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
-
 
 // AdminUpdatePasswordHandler updates any user's password (admin only)
 func AdminUpdatePasswordHandler(c *gin.Context) {

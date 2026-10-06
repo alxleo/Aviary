@@ -17,13 +17,15 @@ interface PairingDialogProps {
   onClose: () => void;
   onPairingSuccess: () => void;
   rmapiHost?: string;
+  rmapiShared?: boolean;
 }
 
 export function PairingDialog({ 
   isOpen, 
   onClose, 
   onPairingSuccess,
-  rmapiHost = ""
+  rmapiHost = "",
+  rmapiShared = false
 }: PairingDialogProps) {
   const { t } = useTranslation();
   const [code, setCode] = useState("");
@@ -89,6 +91,10 @@ export function PairingDialog({
   };
 
   const displayHost = rmapiHost && rmapiHost.trim() !== "" ? rmapiHost : "my.remarkable.com/pair";
+
+  if (rmapiShared) {
+    return null;
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>

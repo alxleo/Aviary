@@ -7,6 +7,8 @@ interface Config {
   multiUserMode: boolean;
   defaultRmDir: string;
   rmapi_host: string;
+  rmapi_shared?: boolean;
+  rmapi_paired?: boolean;
   smtpConfigured: boolean;
   oidcEnabled: boolean;
   oidcDeviceLoginEnabled: boolean;
@@ -14,7 +16,6 @@ interface Config {
   oidcButtonText: string;
   proxyAuthEnabled: boolean;
   oidcGroupBasedAdmin: boolean;
-  rmapi_paired?: boolean;
   pdf_background_removal?: boolean;
   experimentalDownloadLink?: boolean;
 }

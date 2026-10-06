@@ -93,6 +93,7 @@ export function UserSettings({ isOpen, onClose }: UserSettingsProps) {
   const { config } = useConfig();
   const { refetchAuth } = useAuth();
   const { triggerRefresh, refreshTrigger } = useFolderRefresh();
+  const rmapiShared = !!user?.rmapi_shared;
 
   // Device presets for image to PDF conversion
   const devicePresets = {
@@ -453,7 +454,7 @@ export function UserSettings({ isOpen, onClose }: UserSettingsProps) {
     return (
       (!config?.oidcEnabled && username !== originalValues.username) ||
       (!config?.oidcEnabled && email !== originalValues.email) ||
-      userRmapiHost !== originalValues.userRmapiHost ||
+      (!rmapiShared && userRmapiHost !== originalValues.userRmapiHost) ||
       defaultRmdir !== originalValues.defaultRmdir ||
       coverpageSetting !== originalValues.coverpageSetting ||
       contrastSetting !== originalValues.contrastSetting ||
@@ -483,7 +484,7 @@ export function UserSettings({ isOpen, onClose }: UserSettingsProps) {
         credentials: "include",
         body: JSON.stringify({
           ...(config?.oidcEnabled ? {} : { username, email }),
-          rmapi_host: userRmapiHost,
+          ...(rmapiShared ? {} : { rmapi_host: userRmapiHost }),
           default_rmdir: defaultRmdir,
           coverpage_setting: coverpageSetting,
           contrast_setting: contrastSetting,
@@ -883,38 +884,40 @@ export function UserSettings({ isOpen, onClose }: UserSettingsProps) {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <Label htmlFor="rmapi-host">{t("settings.labels.rmapi_host")}</Label>
-                      <Input
-                        id="rmapi-host"
-                        value={userRmapiHost}
-                        onChange={(e) => setUserRmapiHost(e.target.value)}
-                        placeholder={t('settings.placeholders.cloud_default')}
-                        className="mt-2"
-                      />
+                  {!rmapiShared && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <Label htmlFor="rmapi-host">{t("settings.labels.rmapi_host")}</Label>
+                        <Input
+                          id="rmapi-host"
+                          value={userRmapiHost}
+                          onChange={(e) => setUserRmapiHost(e.target.value)}
+                          placeholder={t('settings.placeholders.cloud_default')}
+                          className="mt-2"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        {rmapiPaired ? (
+                          <Button
+                            variant="outline"
+                            onClick={() => setUnpairConfirmDialog(true)}
+                            disabled={saving}
+                            className="w-full sm:w-auto"
+                          >
+                            {t("settings.actions.unpair")}
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={() => setPairingDialogOpen(true)}
+                            disabled={saving}
+                            className="w-full sm:w-auto"
+                          >
+                            {t("settings.actions.pair")}
+                          </Button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-end">
-                      {rmapiPaired ? (
-                        <Button
-                          variant="outline"
-                          onClick={() => setUnpairConfirmDialog(true)}
-                          disabled={saving}
-                          className="w-full sm:w-auto"
-                        >
-                          {t("settings.actions.unpair")}
-                        </Button>
-                      ) : (
-                        <Button
-                          onClick={() => setPairingDialogOpen(true)}
-                          disabled={saving}
-                          className="w-full sm:w-auto"
-                        >
-                          {t("settings.actions.pair")}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mt-8 mb-8">
                     <div>
@@ -1532,6 +1535,7 @@ export function UserSettings({ isOpen, onClose }: UserSettingsProps) {
         onClose={() => setPairingDialogOpen(false)}
         onPairingSuccess={handlePairingSuccess}
         rmapiHost={rmapiHost}
+        rmapiShared={rmapiShared}
       />
 
       {/* Delete Account Dialog */}

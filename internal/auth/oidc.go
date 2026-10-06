@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -318,85 +320,96 @@ func OIDCCallbackHandler(c *gin.Context) {
 	redirectOIDCSuccess(c)
 }
 
+func syntheticOIDCEmail(subject string) (string, error) {
+	if subject == "" {
+		return "", fmt.Errorf("OIDC identity is missing a subject")
+	}
+	digest := sha256.Sum256([]byte(subject))
+	return hex.EncodeToString(digest[:]) + "@oidc.invalid", nil
+}
+
+func lookupOIDCUser(username, email, subject string) (*database.User, error) {
+	if subject == "" {
+		return nil, fmt.Errorf("OIDC identity is missing a subject")
+	}
+
+	if user, err := database.GetUserByOIDCSubject(subject); err == nil {
+		return user, nil
+	}
+
+	// Username and email matching is retained for existing installations, but
+	// can be disabled to prevent an unbound local account from being claimed.
+	if !config.GetBool("OIDC_AUTO_LINK_USERS", true) {
+		return nil, nil
+	}
+	if username != "" {
+		if user, err := database.GetUserByUsernameWithoutOIDC(username); err == nil {
+			return user, nil
+		}
+	}
+	// An empty email claim must never match a local account. In particular, an
+	// empty string is a valid value in older databases and is not an identity.
+	if email != "" {
+		if user, err := database.GetUserByEmailWithoutOIDC(email); err == nil {
+			return user, nil
+		}
+	}
+	return nil, nil
+}
+
 // authenticateOIDCMultiUser resolves and updates the Aviary account for an OIDC identity.
 func authenticateOIDCMultiUser(username, email, name, subject string, groups []string) (*database.User, error) {
-	var user *database.User
-	var err error
-
 	oidcDebugLog("Starting multi-user authentication for subject: %s, username: %s, email: %s", subject, username, email)
 
-	user, err = database.GetUserByOIDCSubject(subject)
+	user, err := lookupOIDCUser(username, email, subject)
 	if err != nil {
-		oidcDebugLog("No user found with OIDC subject %s, trying username/email lookup", subject)
-		user, err = database.GetUserByUsernameWithoutOIDC(username)
-		if err != nil {
-			oidcDebugLog("No user found with username %s, trying email lookup", username)
-			user, err = database.GetUserByEmailWithoutOIDC(email)
-			if err != nil {
-				oidcDebugLog("No existing user found for username %s or email %s, checking auto-creation", username, email)
-				autoCreateUsers := config.Get("OIDC_AUTO_CREATE_USERS", "")
-				oidcDebugLog("OIDC_AUTO_CREATE_USERS setting: %s", autoCreateUsers)
-				if autoCreateUsers != "true" && autoCreateUsers != "1" {
-					oidcDebugLog("Auto-creation disabled, rejecting user creation")
-					return nil, fmt.Errorf("user not found and auto-creation disabled")
-				}
-
-				// Check if this would be the first user (for admin privileges)
-				var userCount int64
-				if err := database.DB.Model(&database.User{}).Count(&userCount).Error; err != nil {
-					return nil, fmt.Errorf("failed to check user count: %w", err)
-				}
-				firstUser := userCount == 0
-				oidcDebugLog("User count: %d, firstUser: %t", userCount, firstUser)
-
-				// Determine admin status based on OIDC groups or first user
-				isAdmin := shouldBeAdminFromGroups(groups, firstUser)
-				oidcDebugLog("Determined admin status for new user: %t", isAdmin)
-
-				// Check if this would be the first admin user
-				var adminCount int64
-				if err := database.DB.Model(&database.User{}).Where("is_admin = ?", true).Count(&adminCount).Error; err != nil {
-					return nil, fmt.Errorf("failed to check admin count: %w", err)
-				}
-				firstAdminUser := adminCount == 0
-
-				// Auto-create user using the existing CreateUser method
-				userService := database.NewUserService(database.DB)
-				oidcDebugLog("Creating new user with username: %s, email: %s, admin: %t", username, email, isAdmin)
-				user, err = userService.CreateUser(username, email, "", isAdmin) // Empty password for OIDC users
-				if err != nil {
-					oidcDebugLog("Failed to create user: %v", err)
-					return nil, fmt.Errorf("failed to create user: %w", err)
-				}
-				oidcDebugLog("Successfully created new user with ID: %s", user.ID)
-
-				// If this is the first admin user, migrate single-user data asynchronously
-				if firstAdminUser && isAdmin {
-					oidcDebugLog("First admin user created, migrating single-user data to user ID: %s", user.ID)
-					go func() {
-						if err := database.MigrateSingleUserData(user.ID); err != nil {
-							oidcDebugLog("Warning: failed to migrate single-user data: %v", err)
-						}
-					}()
-				}
-			} else {
-				oidcDebugLog("Found existing user %s via email, linking to OIDC subject %s", user.Username, subject)
-				if err := database.DB.Model(user).Update("oidc_subject", subject).Error; err != nil {
-					oidcDebugLog("Failed to link existing user to OIDC subject: %v", err)
-					return nil, fmt.Errorf("failed to link existing user to OIDC subject: %w", err)
-				}
-				oidcDebugLog("Successfully linked user %s to OIDC subject", user.Username)
-			}
-		} else {
-			oidcDebugLog("Found existing user %s via username, linking to OIDC subject %s", user.Username, subject)
-			if err := database.DB.Model(user).Update("oidc_subject", subject).Error; err != nil {
-				oidcDebugLog("Failed to link existing user to OIDC subject: %v", err)
-				return nil, fmt.Errorf("failed to link existing user to OIDC subject: %w", err)
-			}
-			oidcDebugLog("Successfully linked user %s to OIDC subject", user.Username)
+		return nil, err
+	}
+	if user == nil {
+		autoCreateUsers := config.GetBool("OIDC_AUTO_CREATE_USERS", false)
+		oidcDebugLog("OIDC_AUTO_CREATE_USERS setting: %t", autoCreateUsers)
+		if !autoCreateUsers {
+			return nil, fmt.Errorf("user not found and auto-creation disabled")
 		}
-	} else {
-		oidcDebugLog("Found existing user %s with OIDC subject %s", user.Username, subject)
+
+		storedEmail := email
+		if storedEmail == "" {
+			storedEmail, err = syntheticOIDCEmail(subject)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Check if this would be the first user (for admin privileges).
+		var userCount int64
+		if err := database.DB.Model(&database.User{}).Count(&userCount).Error; err != nil {
+			return nil, fmt.Errorf("failed to check user count: %w", err)
+		}
+		firstUser := userCount == 0
+		isAdmin := shouldBeAdminFromGroups(groups, firstUser)
+
+		// Check if this would be the first admin user.
+		var adminCount int64
+		if err := database.DB.Model(&database.User{}).Where("is_admin = ?", true).Count(&adminCount).Error; err != nil {
+			return nil, fmt.Errorf("failed to check admin count: %w", err)
+		}
+		firstAdminUser := adminCount == 0
+
+		userService := database.NewUserService(database.DB)
+		oidcDebugLog("Creating new user with username: %s, admin: %t", username, isAdmin)
+		user, err = userService.CreateUser(username, storedEmail, "", isAdmin)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create user: %w", err)
+		}
+
+		// If this is the first admin user, migrate single-user data asynchronously.
+		if firstAdminUser && isAdmin {
+			go func() {
+				if err := database.MigrateSingleUserData(user.ID); err != nil {
+					oidcDebugLog("Warning: failed to migrate single-user data: %v", err)
+				}
+			}()
+		}
 	}
 
 	// Update profile information from OIDC claims
