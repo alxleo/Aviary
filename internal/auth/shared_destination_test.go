@@ -74,9 +74,9 @@ func authSharedRequestContext(t *testing.T, method, path string, user *database.
 
 func TestSharedBorrowerCannotMutateRmapiHost(t *testing.T) {
 	t.Setenv("MULTI_USER", "true")
-	t.Setenv("RMAPI_SHARED_USER", "tablet-owner")
 	db := authSharedTestDB(t)
 	owner, borrower := authSharedTestUsers(t, db)
+	t.Setenv("RMAPI_SHARED_USER_ID", owner.ID.String())
 
 	t.Run("self", func(t *testing.T) {
 		context, recorder := authSharedRequestContext(t, http.MethodPut, "/api/profile", &borrower, map[string]string{

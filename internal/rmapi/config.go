@@ -25,10 +25,14 @@ type DestinationStatus struct {
 
 // ResolveEffectiveUser returns the user whose rmapi configuration and host
 // should be used for a caller. In the default configuration it returns the
-// caller unchanged. RMAPI_SHARED_USER is deliberately resolved on every use
-// so an owner being removed or deactivated fails closed immediately.
+// caller unchanged. RMAPI_SHARED_USER_ID is deliberately resolved on every
+// use so an owner being removed or deactivated fails closed immediately.
 func ResolveEffectiveUser(user *database.User) (*database.User, bool, error) {
-	if !database.IsMultiUserMode() || strings.TrimSpace(config.Get("RMAPI_SHARED_USER", "")) == "" {
+	ownerID, configured, err := sharedOwnerID()
+	if err != nil {
+		return nil, false, err
+	}
+	if !configured {
 		return user, false, nil
 	}
 	if user == nil {
@@ -38,16 +42,31 @@ func ResolveEffectiveUser(user *database.User) (*database.User, bool, error) {
 		return nil, false, fmt.Errorf("shared rmapi destination database is unavailable")
 	}
 
-	ownerName := strings.TrimSpace(config.Get("RMAPI_SHARED_USER", ""))
 	var owner database.User
-	if err := database.DB.Where("LOWER(username) = LOWER(?)", ownerName).First(&owner).Error; err != nil {
-		return nil, false, fmt.Errorf("shared rmapi owner %q is unavailable: %w", ownerName, err)
+	if err := database.DB.Where("id = ?", ownerID).First(&owner).Error; err != nil {
+		return nil, false, fmt.Errorf("shared rmapi owner ID %s is unavailable: %w", ownerID, err)
 	}
 	if !owner.IsActive {
-		return nil, false, fmt.Errorf("shared rmapi owner %q is inactive", ownerName)
+		return nil, false, fmt.Errorf("shared rmapi owner ID %s is inactive", ownerID)
 	}
 
 	return &owner, owner.ID != user.ID, nil
+}
+
+func sharedOwnerID() (uuid.UUID, bool, error) {
+	if !database.IsMultiUserMode() {
+		return uuid.Nil, false, nil
+	}
+
+	rawID := strings.TrimSpace(config.Get("RMAPI_SHARED_USER_ID", ""))
+	if rawID == "" {
+		return uuid.Nil, false, nil
+	}
+	ownerID, err := uuid.Parse(rawID)
+	if err != nil {
+		return uuid.Nil, true, fmt.Errorf("shared rmapi owner ID is invalid: %w", err)
+	}
+	return ownerID, true, nil
 }
 
 // IsSharedBorrower reports whether the caller uses another active user's
@@ -68,7 +87,7 @@ func DestinationStatusForUser(user *database.User) DestinationStatus {
 
 	effective, shared, err := ResolveEffectiveUser(user)
 	if err != nil {
-		if database.IsMultiUserMode() && strings.TrimSpace(config.Get("RMAPI_SHARED_USER", "")) != "" {
+		if database.IsMultiUserMode() && strings.TrimSpace(config.Get("RMAPI_SHARED_USER_ID", "")) != "" {
 			return DestinationStatus{Shared: true}
 		}
 		return DestinationStatus{}

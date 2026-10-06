@@ -22,10 +22,10 @@ func rmapiRequestContext(t *testing.T, user interface{}, handler gin.HandlerFunc
 
 func TestSharedBorrowerCannotPairOrUnpair(t *testing.T) {
 	t.Setenv("MULTI_USER", "true")
-	t.Setenv("RMAPI_SHARED_USER", "tablet-owner")
 	t.Setenv("DRY_RUN", "true")
 	db := rmapiTestDB(t)
 	owner, borrower := rmapiTestUsers(t, db, "owner-config")
+	t.Setenv("RMAPI_SHARED_USER_ID", owner.ID.String())
 
 	for name, handler := range map[string]gin.HandlerFunc{
 		"pair":   PairHandler,

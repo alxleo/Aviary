@@ -30,7 +30,6 @@ func configTestDB(t *testing.T) *gorm.DB {
 
 func TestConfigHandlerReportsEffectiveSharedDestination(t *testing.T) {
 	t.Setenv("MULTI_USER", "true")
-	t.Setenv("RMAPI_SHARED_USER", "tablet-owner")
 	db := configTestDB(t)
 	owner := database.User{
 		ID:          uuid.New(),
@@ -54,6 +53,7 @@ func TestConfigHandlerReportsEffectiveSharedDestination(t *testing.T) {
 	if err := db.Create(&borrower).Error; err != nil {
 		t.Fatalf("create borrower: %v", err)
 	}
+	t.Setenv("RMAPI_SHARED_USER_ID", owner.ID.String())
 
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

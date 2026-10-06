@@ -75,9 +75,9 @@ func commandEnv(cmd *exec.Cmd) map[string]string {
 
 func TestNewCommandUsesSharedDestinationAndCallerCache(t *testing.T) {
 	t.Setenv("MULTI_USER", "true")
-	t.Setenv("RMAPI_SHARED_USER", "tablet-owner")
 	db := rmapiTestDB(t)
 	owner, borrower := rmapiTestUsers(t, db, "owner-config")
+	t.Setenv("RMAPI_SHARED_USER_ID", owner.ID.String())
 
 	previousCommand := ExecCommand
 	ExecCommand = func(name string, args ...string) *exec.Cmd {
@@ -138,7 +138,7 @@ func TestNewCommandUsesSharedDestinationAndCallerCache(t *testing.T) {
 
 func TestNewCommandDefaultDestinationUsesCallerConfig(t *testing.T) {
 	t.Setenv("MULTI_USER", "true")
-	t.Setenv("RMAPI_SHARED_USER", "")
+	t.Setenv("RMAPI_SHARED_USER_ID", "")
 	db := rmapiTestDB(t)
 	_, borrower := rmapiTestUsers(t, db, "owner-config")
 	borrower.RmapiConfig = "borrower-config"
@@ -176,7 +176,7 @@ func TestNewCommandDefaultDestinationUsesCallerConfig(t *testing.T) {
 
 func TestNewCommandRequiresCallerInMultiUserMode(t *testing.T) {
 	t.Setenv("MULTI_USER", "true")
-	t.Setenv("RMAPI_SHARED_USER", "")
+	t.Setenv("RMAPI_SHARED_USER_ID", "")
 
 	cmd, cleanup, err := NewCommand(nil, "ls", "/")
 	cleanup()
@@ -190,7 +190,6 @@ func TestNewCommandRequiresCallerInMultiUserMode(t *testing.T) {
 
 func TestNewCommandFailsClosedForSharedOwner(t *testing.T) {
 	t.Setenv("MULTI_USER", "true")
-	t.Setenv("RMAPI_SHARED_USER", "tablet-owner")
 
 	tests := []struct {
 		name      string
@@ -224,6 +223,7 @@ func TestNewCommandFailsClosedForSharedOwner(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			db := rmapiTestDB(t)
 			owner, borrower := rmapiTestUsers(t, db, "owner-config")
+			t.Setenv("RMAPI_SHARED_USER_ID", owner.ID.String())
 			if tt.setup != nil {
 				tt.setup(db, owner)
 			}
@@ -243,5 +243,42 @@ func TestNewCommandFailsClosedForSharedOwner(t *testing.T) {
 				t.Fatal("borrower should be unpaired when shared owner is unavailable")
 			}
 		})
+	}
+}
+
+func TestResolveSharedOwnerUsesImmutableID(t *testing.T) {
+	t.Setenv("MULTI_USER", "true")
+	db := rmapiTestDB(t)
+	owner, borrower := rmapiTestUsers(t, db, "owner-config")
+	t.Setenv("RMAPI_SHARED_USER_ID", owner.ID.String())
+
+	if err := db.Delete(&owner).Error; err != nil {
+		t.Fatalf("delete configured owner: %v", err)
+	}
+	replacement := database.User{
+		ID:          uuid.New(),
+		Username:    owner.Username,
+		Email:       "replacement@example.test",
+		Password:    "password",
+		IsActive:    true,
+		RmapiConfig: "replacement-config",
+	}
+	if err := db.Create(&replacement).Error; err != nil {
+		t.Fatalf("create replacement user: %v", err)
+	}
+
+	if _, _, err := ResolveEffectiveUser(&borrower); err == nil {
+		t.Fatal("shared destination resolved a replacement username after the configured owner was deleted")
+	}
+}
+
+func TestResolveSharedOwnerRejectsInvalidID(t *testing.T) {
+	t.Setenv("MULTI_USER", "true")
+	t.Setenv("RMAPI_SHARED_USER_ID", "not-a-uuid")
+	db := rmapiTestDB(t)
+	_, borrower := rmapiTestUsers(t, db, "owner-config")
+
+	if _, _, err := ResolveEffectiveUser(&borrower); err == nil {
+		t.Fatal("shared destination accepted an invalid owner ID")
 	}
 }
