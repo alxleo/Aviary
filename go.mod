@@ -1,8 +1,8 @@
 module github.com/rmitchellscott/aviary
 
-go 1.25.0
+go 1.26.0
 
-toolchain go1.26.0
+toolchain go1.26.10
 
 require (
 	codeberg.org/readeck/go-readability/v2 v2.1.1
@@ -26,10 +26,10 @@ require (
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/vincent-petithory/dataurl v1.0.0
 	github.com/yuin/goldmark v1.7.17
-	golang.org/x/crypto v0.52.0
+	golang.org/x/crypto v0.57.0
 	golang.org/x/oauth2 v0.35.0
-	golang.org/x/term v0.43.0
-	golang.org/x/text v0.39.0
+	golang.org/x/term v0.46.0
+	golang.org/x/text v0.42.0
 	golang.org/x/time v0.14.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/gorm v1.31.1
@@ -97,10 +97,10 @@ require (
 	go.mongodb.org/mongo-driver/v2 v2.5.0 // indirect
 	golang.org/x/arch v0.22.0 // indirect
 	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792 // indirect
-	golang.org/x/image v0.43.0 // indirect
-	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/image v0.45.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	modernc.org/libc v1.66.4 // indirect
