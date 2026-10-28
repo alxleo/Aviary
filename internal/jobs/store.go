@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"maps"
 	"sync"
 	"time"
 )
@@ -31,24 +32,11 @@ func (s *Store) Subscribe(id string) (<-chan *Job, func()) {
 	ch := make(chan *Job, 256)
 	s.mu.Lock()
 	s.watchers[id] = append(s.watchers[id], ch)
-	job := s.jobs[id]
-	s.mu.Unlock()
-
+	job := snapshot(s.jobs[id])
 	if job != nil {
-		// send current state (as a copy to prevent mutation issues)
-		jobCopy := &Job{
-			Status:    job.Status,
-			Message:   job.Message,
-			Data:      make(map[string]string),
-			Progress:  job.Progress,
-			Operation: job.Operation,
-		}
-		// Copy the data map
-		for k, v := range job.Data {
-			jobCopy.Data[k] = v
-		}
-		ch <- jobCopy
+		ch <- job
 	}
+	s.mu.Unlock()
 
 	return ch, func() {
 		s.mu.Lock()
@@ -66,16 +54,7 @@ func (s *Store) Subscribe(id string) (<-chan *Job, func()) {
 
 func (s *Store) broadcastLocked(id string) {
 	job := s.jobs[id]
-	jobCopy := &Job{
-		Status:    job.Status,
-		Message:   job.Message,
-		Data:      make(map[string]string),
-		Progress:  job.Progress,
-		Operation: job.Operation,
-	}
-	for k, v := range job.Data {
-		jobCopy.Data[k] = v
-	}
+	jobCopy := snapshot(job)
 
 	isTerminal := job.Status == "success" || job.Status == "error"
 	watchers := append([]chan *Job(nil), s.watchers[id]...)
@@ -151,5 +130,14 @@ func (s *Store) Get(id string) (*Job, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	j, ok := s.jobs[id]
-	return j, ok
+	return snapshot(j), ok
+}
+
+func snapshot(job *Job) *Job {
+	if job == nil {
+		return nil
+	}
+	copy := *job
+	copy.Data = maps.Clone(job.Data)
+	return &copy
 }
