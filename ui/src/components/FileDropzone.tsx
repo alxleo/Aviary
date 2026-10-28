@@ -14,6 +14,8 @@ interface FileDropzoneProps {
 
 const ACCEPT_CONFIG = {
   'application/pdf': ['.pdf'],
+  'application/msword': ['.doc'],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
   'application/epub+zip': ['.epub'],
   'image/jpeg': ['.jpg', '.jpeg'],
   'image/png': ['.png'],

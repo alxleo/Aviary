@@ -40,6 +40,7 @@ A webhook-driven document uploader that automatically downloads and sends PDFs t
 - Web article extraction (using Mozilla Readability algorithm)
 - Markdown and HTML to PDF/EPUB conversion
 - PNG/JPEG to PDF conversion
+- DOC/DOCX to PDF conversion through an internal Gotenberg server
 - Optional Ghostscript compression
 - Configurable conflict resolution (abort/overwrite/content-only)
 - Smart upload modes (simple or managed with retention via API)

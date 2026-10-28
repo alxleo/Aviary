@@ -45,7 +45,7 @@ Upload documents by providing base64-encoded content directly.
 | outputFormat             | No        | pdf/epub | Output format for HTML and Markdown files. Defaults to CONVERSION_OUTPUT_FORMAT or epub. |
 | removeBackground         | No        | true/false | Remove background images from PDF (experimental). Defaults to user setting if enabled. |
 
-**Supported content types:** PDF, JPEG, PNG, EPUB, Markdown (.md), HTML (.html)
+**Supported content types:** PDF, JPEG, PNG, EPUB, Markdown (.md), HTML (.html), Word (.doc/.docx). Word uploads require `GOTENBERG_URL` and always become PDFs, including in multipart batches. Converted PDFs are limited to 64 MiB.
 
 **Note:** The `content_only` conflict resolution mode only works with PDF files. For non-PDF files (images, EPUB), it automatically falls back to `abort` behavior.
 
