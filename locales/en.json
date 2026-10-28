@@ -70,7 +70,7 @@
   },
   "filedrop": {
     "instruction": "Click to upload or drag and drop",
-    "invalid_type": "Please select a PDF, EPUB, JPEG, PNG, Markdown, or HTML file."
+    "invalid_type": "Please select a PDF, EPUB, Word (DOC/DOCX), JPEG, PNG, Markdown, or HTML file."
   },
   "theme": {
     "switch": "Switch to {{mode}} mode",
