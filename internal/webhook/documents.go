@@ -145,10 +145,6 @@ func processDocumentForUser(jobID string, req DocumentRequest, userID uuid.UUID)
 			contentTypeToUse = detectedType
 		}
 		switch {
-		case strings.HasPrefix(contentTypeToUse, "application/msword"):
-			filename += ".doc"
-		case strings.HasPrefix(contentTypeToUse, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
-			filename += ".docx"
 		case strings.HasPrefix(contentTypeToUse, "application/pdf"):
 			filename += ".pdf"
 		case strings.HasPrefix(contentTypeToUse, "image/jpeg"):
@@ -158,6 +154,15 @@ func processDocumentForUser(jobID string, req DocumentRequest, userID uuid.UUID)
 		case strings.HasPrefix(contentTypeToUse, "application/epub"):
 			filename += ".epub"
 		}
+	}
+
+	// The declared Word type must enter conversion even with a missing or
+	// contradictory filename suffix; raw Office bytes must never reach rmapi.
+	switch {
+	case strings.HasPrefix(req.ContentType, "application/msword"):
+		filename = strings.TrimSuffix(filename, filepath.Ext(filename)) + ".doc"
+	case strings.HasPrefix(req.ContentType, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"):
+		filename = strings.TrimSuffix(filename, filepath.Ext(filename)) + ".docx"
 	}
 
 	// Create temp file with proper extension

@@ -50,15 +50,17 @@ func TestWordUploadsReportConversionFailure(t *testing.T) {
 	}
 
 	for _, contentType := range []string{"application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"} {
-		t.Run(contentType, func(t *testing.T) {
-			body, err := json.Marshal(DocumentRequest{Body: base64.StdEncoding.EncodeToString([]byte("document")), ContentType: contentType, IsContent: true})
-			if err != nil {
-				t.Fatal(err)
-			}
-			request := httptest.NewRequest(http.MethodPost, "/api/webhook", bytes.NewReader(body))
-			request.Header.Set("Content-Type", "application/json")
-			assertWordConversionFailure(t, router, request)
-		})
+		for _, filename := range []string{"", "notes", "notes.pdf"} {
+			t.Run(contentType+"/"+filename, func(t *testing.T) {
+				body, err := json.Marshal(DocumentRequest{Body: base64.StdEncoding.EncodeToString([]byte("document")), ContentType: contentType, Filename: filename, IsContent: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				request := httptest.NewRequest(http.MethodPost, "/api/webhook", bytes.NewReader(body))
+				request.Header.Set("Content-Type", "application/json")
+				assertWordConversionFailure(t, router, request)
+			})
+		}
 	}
 }
 
