@@ -234,6 +234,9 @@ func UpdateUserHandler(c *gin.Context) {
 	if req.PageDPI != nil {
 		updates["page_dpi"] = *req.PageDPI
 	}
+	if req.ConversionOutputFormat != nil {
+		updates["conversion_output_format"] = *req.ConversionOutputFormat
+	}
 	if req.IsAdmin != nil {
 		updates["is_admin"] = *req.IsAdmin
 	}
