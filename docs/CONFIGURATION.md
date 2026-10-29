@@ -38,7 +38,7 @@ This is particularly useful when using Docker secrets, Kubernetes secrets, or ot
 | RMAPI_CONFLICT_RESOLUTION| No        | abort   | Default conflict resolution mode: `abort`, `overwrite`, or `content_only` |
 | RMAPI_FOLDER_DEPTH_LIMIT | No        | 0       | Limit folder traversal depth (0 = no limit, used as the default in multi-user mode) |
 | RMAPI_FOLDER_EXCLUSION_LIST | No     |         | Comma-separated list of folder names to exclude (e.g., `trash,templates,archive`) |
-| RM_TARGET_DIR            | No        | /       | Target folder on reMarkable device (single-user mode only) |
+| RM_TARGET_DIR            | No        | /       | Target folder on reMarkable; also the initial default folder for new multi-user accounts |
 | GS_COMPAT                | No        | 1.7     | Ghostscript compatibility level |
 | GS_SETTINGS              | No        | /ebook  | Ghostscript PDFSETTINGS preset |
 | SNIFF_TIMEOUT            | No        | 5s      | Timeout for sniffing the MIME type |
@@ -47,7 +47,7 @@ This is particularly useful when using Docker secrets, Kubernetes secrets, or ot
 | FOLDER_REFRESH_RATE      | No        | 0.2     | Rate of folder refreshes per second (e.g., "0.2" for one refresh every 5 seconds) |
 | PAGE_RESOLUTION          | No        | 1404x1872 | Page resolution for PDF conversion (WIDTHxHEIGHT format), used as the default in multi-user mode |
 | PAGE_DPI                 | No        | 226     | Page DPI for PDF conversion, used as the default in multi-user mode |
-| CONVERSION_OUTPUT_FORMAT | No        | epub    | Default output format for web articles, HTML, and Markdown conversion (`pdf` or `epub`) |
+| CONVERSION_OUTPUT_FORMAT | No        | epub    | Default output format for web articles, HTML, and Markdown conversion (`pdf` or `epub`); also initializes new multi-user accounts |
 | GOTENBERG_URL            | No        |         | Internal Gotenberg base URL; required for DOC/DOCX uploads. Word files always convert to PDF. |
 | GOTENBERG_TIMEOUT        | No        | 2m      | Maximum duration of a Word conversion, including the PDF response. |
 | PDF_BACKGROUND_REMOVAL   | No        | false   | Remove background images from scanned PDFs (experimental) |
@@ -77,6 +77,8 @@ For more rmapi-specific configuration, see [their documentation](https://github.
 - **BLOCKED_DOMAINS**: Blocks specific domains and their subdomains. For example, setting `BLOCKED_DOMAINS=example.com` will block both `example.com` and `*.example.com`
 
 ## Multi-User Mode Configuration
+
+New accounts inherit `RM_TARGET_DIR` and `CONVERSION_OUTPUT_FORMAT`. Existing accounts keep their saved preferences.
 
 | Variable                 | Required? | Default | Description |
 |--------------------------|-----------|---------|-------------|

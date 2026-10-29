@@ -90,21 +90,22 @@ func (s *UserService) CreateUser(username, email, password string, isAdmin bool)
 	folderExclusionList := config.Get("RMAPI_FOLDER_EXCLUSION_LIST", "")
 
 	user := &User{
-		ID:                  uuid.New(),
-		Username:            username,
-		Email:               email,
-		Password:            string(hashedPassword),
-		IsAdmin:             isAdmin,
-		IsActive:            true,
-		RmapiHost:           rmapiHost,
-		DefaultRmdir:        "/",
-		CoverpageSetting:    coverpageSetting,
-		ContrastSetting:     contrastSetting,
-		ConflictResolution:  conflictResolution,
-		FolderDepthLimit:    folderDepthLimit,
-		FolderExclusionList: folderExclusionList,
-		CreatedAt:           time.Now(),
-		UpdatedAt:           time.Now(),
+		ID:                     uuid.New(),
+		Username:               username,
+		Email:                  email,
+		Password:               string(hashedPassword),
+		IsAdmin:                isAdmin,
+		IsActive:               true,
+		RmapiHost:              rmapiHost,
+		DefaultRmdir:           config.Get("RM_TARGET_DIR", "/"),
+		ConversionOutputFormat: config.GetConversionOutputFormat(),
+		CoverpageSetting:       coverpageSetting,
+		ContrastSetting:        contrastSetting,
+		ConflictResolution:     conflictResolution,
+		FolderDepthLimit:       folderDepthLimit,
+		FolderExclusionList:    folderExclusionList,
+		CreatedAt:              time.Now(),
+		UpdatedAt:              time.Now(),
 	}
 
 	if err := s.db.Create(user).Error; err != nil {
