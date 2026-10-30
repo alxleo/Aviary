@@ -78,7 +78,7 @@ For more rmapi-specific configuration, see [their documentation](https://github.
 
 ## Multi-User Mode Configuration
 
-New accounts inherit `RM_TARGET_DIR` and `CONVERSION_OUTPUT_FORMAT`. Existing accounts keep their saved preferences.
+New accounts inherit `RM_TARGET_DIR`, `CONVERSION_OUTPUT_FORMAT`, `PAGE_RESOLUTION`, `PAGE_DPI`, and the `RMAPI_*` reading defaults. Existing accounts keep their saved preferences.
 
 | Variable                 | Required? | Default | Description |
 |--------------------------|-----------|---------|-------------|

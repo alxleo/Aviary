@@ -65,7 +65,6 @@ func TestOfficeConversionFailures(t *testing.T) {
 		{"invalid output", 200, "not a PDF"},
 		{"truncated output", 200, "%PD"},
 		{"redirect", 307, ""},
-		{"oversized PDF", 200, "%PDF-" + strings.Repeat("x", maxOfficePDFSize)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := filepath.Join(t.TempDir(), "document.docx")
@@ -83,6 +82,68 @@ func TestOfficeConversionFailures(t *testing.T) {
 			}
 			if _, err := os.Stat(strings.TrimSuffix(input, ".docx") + ".pdf"); !os.IsNotExist(err) {
 				t.Fatalf("failed conversion left a PDF behind: %v", err)
+			}
+		})
+	}
+}
+
+func TestOfficeConversionSizeLimits(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		size   int64
+		accept bool
+	}{
+		{"above former limit", 65 << 20, true},
+		{"at limit", 128 << 20, true},
+		{"above limit", (128 << 20) + 1, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			input := filepath.Join(dir, "document.docx")
+			if err := os.WriteFile(input, []byte("input"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			payload := filepath.Join(dir, "converted.pdf")
+			file, err := os.Create(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := file.WriteString("%PDF-1.7\n"); err != nil {
+				t.Fatal(err)
+			}
+			if err := file.Truncate(test.size); err != nil {
+				t.Fatal(err)
+			}
+			file.Close()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				io.Copy(io.Discard, r.Body)
+				reader, err := os.Open(payload)
+				if err != nil {
+					t.Error(err)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+				defer reader.Close()
+				io.Copy(w, reader)
+			}))
+			defer server.Close()
+			t.Setenv("GOTENBERG_URL", server.URL)
+			output, err := ConvertOfficeToPDF(context.Background(), input)
+			if !test.accept {
+				if err == nil || output != "" {
+					t.Fatalf("oversized conversion succeeded: %q, %v", output, err)
+				}
+				if _, err := os.Stat(filepath.Join(dir, "document.pdf")); !os.IsNotExist(err) {
+					t.Fatalf("oversized conversion left output: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(output)
+			if err != nil || info.Size() != test.size {
+				t.Fatalf("converted PDF size does not match %d: %v", test.size, err)
 			}
 		})
 	}

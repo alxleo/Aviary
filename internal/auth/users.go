@@ -237,6 +237,12 @@ func UpdateUserHandler(c *gin.Context) {
 	if req.ConversionOutputFormat != nil {
 		updates["conversion_output_format"] = *req.ConversionOutputFormat
 	}
+	if req.FolderDepthLimit != nil {
+		updates["folder_depth_limit"] = *req.FolderDepthLimit
+	}
+	if req.FolderExclusionList != nil {
+		updates["folder_exclusion_list"] = *req.FolderExclusionList
+	}
 	if req.IsAdmin != nil {
 		updates["is_admin"] = *req.IsAdmin
 	}

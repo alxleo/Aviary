@@ -88,6 +88,7 @@ func (s *UserService) CreateUser(username, email, password string, isAdmin bool)
 		}
 	}
 	folderExclusionList := config.Get("RMAPI_FOLDER_EXCLUSION_LIST", "")
+	pageDPI, _ := strconv.ParseFloat(config.Get("PAGE_DPI", "0"), 64)
 
 	user := &User{
 		ID:                     uuid.New(),
@@ -104,6 +105,8 @@ func (s *UserService) CreateUser(username, email, password string, isAdmin bool)
 		ConflictResolution:     conflictResolution,
 		FolderDepthLimit:       folderDepthLimit,
 		FolderExclusionList:    folderExclusionList,
+		PageResolution:         config.Get("PAGE_RESOLUTION", ""),
+		PageDPI:                pageDPI,
 		CreatedAt:              time.Now(),
 		UpdatedAt:              time.Now(),
 	}
