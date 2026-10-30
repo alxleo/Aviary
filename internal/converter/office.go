@@ -16,7 +16,7 @@ import (
 	"github.com/rmitchellscott/aviary/internal/config"
 )
 
-const maxOfficePDFSize = 64 << 20
+const maxOfficePDFSize = 128 << 20
 
 func IsOfficeDocument(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
@@ -92,7 +92,7 @@ func ConvertOfficeToPDF(ctx context.Context, path string) (string, error) {
 		return "", fmt.Errorf("read converted PDF: %w", err)
 	}
 	if written > maxOfficePDFSize {
-		return "", fmt.Errorf("converted PDF exceeds 64 MiB")
+		return "", fmt.Errorf("converted PDF exceeds 128 MiB")
 	}
 	if err := output.Close(); err != nil {
 		return "", err
