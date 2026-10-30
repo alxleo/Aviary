@@ -122,7 +122,7 @@ export default function HomePage() {
   const { isAuthenticated, isLoading, login, authConfigured, uiSecret, multiUserMode, oidcEnabled, proxyAuthEnabled } =
     useAuth();
   const { t } = useTranslation();
-  const { rmapiPaired, rmapiHost, loading: userDataLoading, updatePairingStatus, user } = useUserData();
+  const { rmapiPaired, rmapiHost, loading: userDataLoading, updatePairingStatus, user, downloadLinksEnabled: showDownloadLink } = useUserData();
   const rmapiShared = !!user?.rmapi_shared;
   const { config } = useConfig();
   const { refreshTrigger, triggerRefresh } = useFolderRefresh();
@@ -222,7 +222,6 @@ export default function HomePage() {
 
   // Show background removal toggle if user has it enabled (multi-user) or config has it enabled (single-user)
   const showBgRemovalToggle = user?.pdf_background_removal || (!multiUserMode && config?.pdf_background_removal);
-  const showDownloadLink = user?.experimental_download_link ?? config?.experimentalDownloadLink ?? false;
 
   useEffect(() => {
     if (!showBgRemovalToggle || !isPDFFileOrUrl) {

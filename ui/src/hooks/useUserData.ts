@@ -131,6 +131,7 @@ export function useUserData() {
 
   return {
     user,
+    downloadLinksEnabled: user?.experimental_download_link ?? config?.experimentalDownloadLink ?? false,
     loading,
     rmapiPaired,
     rmapiHost,
