@@ -222,7 +222,7 @@ export default function HomePage() {
 
   // Show background removal toggle if user has it enabled (multi-user) or config has it enabled (single-user)
   const showBgRemovalToggle = user?.pdf_background_removal || (!multiUserMode && config?.pdf_background_removal);
-  const showDownloadLink = user?.experimental_download_link || (!multiUserMode && config?.experimentalDownloadLink);
+  const showDownloadLink = user?.experimental_download_link ?? config?.experimentalDownloadLink ?? false;
 
   useEffect(() => {
     if (!showBgRemovalToggle || !isPDFFileOrUrl) {
