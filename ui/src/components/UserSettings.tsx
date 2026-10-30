@@ -89,7 +89,7 @@ const truncateFromStart = (path: string, maxLength: number = 30): string => {
 
 export function UserSettings({ isOpen, onClose }: UserSettingsProps) {
   const { t } = useTranslation();
-  const { user, loading: userDataLoading, rmapiPaired, rmapiHost, refetch, updatePairingStatus } = useUserData();
+  const { user, loading: userDataLoading, rmapiPaired, rmapiHost, refetch, updatePairingStatus, downloadLinksEnabled } = useUserData();
   const { config } = useConfig();
   const { refetchAuth } = useAuth();
   const { triggerRefresh, refreshTrigger } = useFolderRefresh();
@@ -228,7 +228,7 @@ export function UserSettings({ isOpen, onClose }: UserSettingsProps) {
         const manualDPI = detectedPreset === "manual" ? (user.page_dpi?.toString() || "") : "";
         const outputFormat = user.conversion_output_format || "epub";
         const bgRemoval = user.pdf_background_removal ?? false;
-        const dlLink = user.experimental_download_link ?? false;
+        const dlLink = downloadLinksEnabled;
 
         setUsername(user.username);
         setEmail(email);
@@ -247,7 +247,7 @@ export function UserSettings({ isOpen, onClose }: UserSettingsProps) {
         setExperimentalDownloadLink(dlLink);
       }
     }
-  }, [isOpen, user]);
+  }, [isOpen, user, downloadLinksEnabled]);
 
   // Update form fields when user data changes
   useEffect(() => {
@@ -265,7 +265,7 @@ export function UserSettings({ isOpen, onClose }: UserSettingsProps) {
       const manualDPI = detectedPreset === "manual" ? (user.page_dpi?.toString() || "") : "";
       const outputFormat = user.conversion_output_format || "epub";
       const bgRemoval = user.pdf_background_removal ?? false;
-      const dlLink = user.experimental_download_link ?? false;
+      const dlLink = downloadLinksEnabled;
 
       setUsername(user.username);
       setEmail(email);
@@ -301,7 +301,7 @@ export function UserSettings({ isOpen, onClose }: UserSettingsProps) {
         experimentalDownloadLink: dlLink
       });
     }
-  }, [user]);
+  }, [user, downloadLinksEnabled]);
 
   useEffect(() => {
     if (isOpen && user && rmapiPaired) {
