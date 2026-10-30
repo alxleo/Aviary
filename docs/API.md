@@ -14,7 +14,8 @@ Upload documents by providing a URL to download from.
 |--------------------------|-----------|---------|-------------|
 | Body                     | Yes       | https://pdfobject.com/pdf/sample.pdf | URL to PDF/EPUB to download, or web article URL for extraction
 | prefix                   | No        | Reports     | Folder and file-name prefix, only used if `manage` is also `true` |
-| compress                 | No        | true/false  | Run Ghostscript compression (PDF only) |
+| compress                 | No        | true/false  | Run Ghostscript compression (off by default) |
+| compression_preset       | No        | default/scan_300_color/scan_300_grayscale | Optional preset; requires compress=true. Scan presets accept only original PDF inputs. |
 | manage                   | No        | true/false  | Enable managed handling (renaming and cleanup) |
 | archive                  | No        | true/false  | Download to PDF_DIR instead of /tmp |
 | rm_dir                   | No        | Books       | Override default reMarkable upload directory |
@@ -35,7 +36,8 @@ Upload documents by providing base64-encoded content directly.
 | filename                 | No        | document.pdf | Original filename |
 | isContent                | Yes       | true | Must be set to true for content uploads |
 | prefix                   | No        | Reports | Folder and file-name prefix |
-| compress                 | No        | true/false | Run Ghostscript compression (PDF only) |
+| compress                 | No        | true/false | Run Ghostscript compression (off by default) |
+| compression_preset       | No        | default/scan_300_color/scan_300_grayscale | Optional preset; requires compress=true. Scan presets accept only original PDF inputs. |
 | manage                   | No        | true/false | Enable managed handling |
 | archive                  | No        | true/false | Save to PDF_DIR instead of /tmp |
 | rm_dir                   | No        | Books | Override default reMarkable upload directory |
@@ -45,9 +47,25 @@ Upload documents by providing base64-encoded content directly.
 | outputFormat             | No        | pdf/epub | Output format for HTML and Markdown files. Defaults to CONVERSION_OUTPUT_FORMAT or epub. |
 | removeBackground         | No        | true/false | Remove background images from PDF (experimental). Defaults to user setting if enabled. |
 
-**Supported content types:** PDF, JPEG, PNG, EPUB, Markdown (.md), HTML (.html), Word (.doc/.docx). Word uploads require `GOTENBERG_URL` and always become PDFs, including in multipart batches. Converted PDFs are limited to 64 MiB.
+**Supported content types:** PDF, JPEG, PNG, EPUB, Markdown (.md), HTML (.html), Word (.doc/.docx). Word uploads require `GOTENBERG_URL` and always become PDFs, including in multipart batches. Converted PDFs are limited to 128 MiB.
 
 **Note:** The `content_only` conflict resolution mode only works with PDF files. For non-PDF files (images, EPUB), it automatically falls back to `abort` behavior.
+
+### Optional scan compression
+
+`compress=true` is required to enable compression. `compression_preset=default`
+uses the existing `GS_SETTINGS` server preset. `scan_300_color` preserves color;
+`scan_300_grayscale` converts the PDF to grayscale. Both scan presets reduce
+embedded images above 300 DPI, including monochrome images, without enlarging
+lower-resolution images. Page size and selectable text are preserved; these are
+not page-layout presets and do not perform OCR.
+
+Multipart `/api/upload` accepts the same `compress` and `compression_preset`
+fields. Scan presets require every input in a batch to be a PDF, and reject
+Word, image, EPUB or article inputs rather than applying scan processing to a
+converted document. Invalid combinations finish the job with
+`backend.status.invalid_compression_preset` before cloud delivery. Omitting
+`compress` leaves the original file unchanged even when a preset is supplied.
 
 ## Authentication
 

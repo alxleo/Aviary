@@ -21,7 +21,7 @@ import (
 
 func UploadHandler(c *gin.Context) {
 	maxUploadSize := getMaxUploadSize()
-	
+
 	contentLength := c.Request.ContentLength
 	if contentLength > maxUploadSize {
 		logging.Logf("[UPLOAD] File too large: %d bytes (limit: %d bytes)", contentLength, maxUploadSize)
@@ -34,13 +34,13 @@ func UploadHandler(c *gin.Context) {
 		c.String(http.StatusBadRequest, "backend.errors.parse_form")
 		return
 	}
-	
+
 	boundary := params["boundary"]
 	if boundary == "" {
 		c.String(http.StatusBadRequest, "backend.errors.parse_form")
 		return
 	}
-	
+
 	multipartReader := multipart.NewReader(c.Request.Body, boundary)
 
 	var userID uuid.UUID
@@ -55,7 +55,7 @@ func UploadHandler(c *gin.Context) {
 	// 3) Process multipart stream to extract files and form values
 	var savedPaths []string
 	var formValues = make(map[string]string)
-	
+
 	for {
 		part, err := multipartReader.NextPart()
 		if err == io.EOF {
@@ -65,10 +65,10 @@ func UploadHandler(c *gin.Context) {
 			c.String(http.StatusBadRequest, "backend.errors.parse_form")
 			return
 		}
-		
+
 		fieldName := part.FormName()
 		filename := part.FileName()
-		
+
 		if filename != "" {
 			if fieldName == "file" || fieldName == "files" {
 				filePath, err := processFilePart(part, filename, userID)
@@ -88,52 +88,36 @@ func UploadHandler(c *gin.Context) {
 			}
 			formValues[fieldName] = string(value)
 		}
-		
+
 		part.Close()
 	}
-	
+
 	if len(savedPaths) == 0 {
 		c.String(http.StatusBadRequest, "backend.errors.get_file")
 		return
 	}
 
-	compressVal := formValues["compress"]
-	manageVal := formValues["manage"]
-	archiveVal := formValues["archive"]
-	rmDirVal := formValues["rm_dir"]
-	prefixVal := formValues["prefix"]
-	removeBackgroundVal := formValues["remove_background"]
-	var jobId string
-	if len(savedPaths) == 1 {
-		form := map[string]string{
-			"Body":              savedPaths[0],
-			"prefix":            prefixVal,
-			"compress":          compressVal,
-			"manage":            manageVal,
-			"archive":           archiveVal,
-			"rm_dir":            rmDirVal,
-			"remove_background": removeBackgroundVal,
-			"source":            "ui",
-		}
-		jobId = enqueueJobForUser(form, userID)
-	} else {
+	body := savedPaths[0]
+	if len(savedPaths) > 1 {
 		pathsJSON, err := json.Marshal(savedPaths)
 		if err != nil {
 			c.String(http.StatusInternalServerError, "backend.errors.internal_error")
 			return
 		}
-		form := map[string]string{
-			"Body":              fmt.Sprintf("files:%s", string(pathsJSON)),
-			"prefix":            prefixVal,
-			"compress":          compressVal,
-			"manage":            manageVal,
-			"archive":           archiveVal,
-			"rm_dir":            rmDirVal,
-			"remove_background": removeBackgroundVal,
-			"source":            "ui",
-		}
-		jobId = enqueueJobForUser(form, userID)
+		body = fmt.Sprintf("files:%s", string(pathsJSON))
 	}
+	form := map[string]string{
+		"Body":               body,
+		"prefix":             formValues["prefix"],
+		"compress":           formValues["compress"],
+		"compression_preset": formValues["compression_preset"],
+		"manage":             formValues["manage"],
+		"archive":            formValues["archive"],
+		"rm_dir":             formValues["rm_dir"],
+		"remove_background":  formValues["remove_background"],
+		"source":             "ui",
+	}
+	jobId := enqueueJobForUser(form, userID)
 	c.JSON(http.StatusAccepted, gin.H{"jobId": jobId})
 }
 
@@ -151,10 +135,10 @@ func parseContentType(contentType string) (mediaType string, params map[string]s
 	if len(parts) == 0 {
 		return "", nil, fmt.Errorf("invalid content type")
 	}
-	
+
 	mediaType = strings.TrimSpace(parts[0])
 	params = make(map[string]string)
-	
+
 	for _, part := range parts[1:] {
 		part = strings.TrimSpace(part)
 		if kv := strings.SplitN(part, "=", 2); len(kv) == 2 {
@@ -163,7 +147,7 @@ func parseContentType(contentType string) (mediaType string, params map[string]s
 			params[key] = value
 		}
 	}
-	
+
 	return mediaType, params, nil
 }
 
@@ -172,18 +156,18 @@ func processFilePart(part *multipart.Part, filename string, userID uuid.UUID) (s
 	if err != nil {
 		return "", fmt.Errorf("could not create upload directory: %w", err)
 	}
-	
+
 	dstPath := filepath.Join(uploadDir, filepath.Base(filename))
 	dstFile, err := os.Create(dstPath)
 	if err != nil {
 		return "", fmt.Errorf("could not create file on disk: %w", err)
 	}
 	defer dstFile.Close()
-	
+
 	_, err = io.Copy(dstFile, part)
 	if err != nil {
 		return "", fmt.Errorf("could not save file: %w", err)
 	}
-	
+
 	return dstPath, nil
 }

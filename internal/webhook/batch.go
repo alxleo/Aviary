@@ -35,8 +35,10 @@ func processMultipleFilesForUser(jobID string, form map[string]string, userID uu
 		return "backend.status.internal_error", nil, fmt.Errorf("failed to parse file paths: %w", err)
 	}
 
+	pdfOnly := true
 	// Validate all file paths to prevent path injection attacks
 	for i, filePath := range filePaths {
+		pdfOnly = pdfOnly && strings.EqualFold(filepath.Ext(filePath), ".pdf")
 		if err := security.ValidateExistingFilePath(filePath); err != nil {
 			return "backend.status.internal_error", nil, fmt.Errorf("invalid file path at index %d: %w", i, err)
 		}
@@ -51,6 +53,14 @@ func processMultipleFilesForUser(jobID string, form map[string]string, userID uu
 	)
 
 	defer func() { secureCleanupPaths(cleanupPaths) }()
+	preset := compressor.DefaultPreset
+	if compress {
+		var presetErr error
+		preset, presetErr = compressor.SelectPreset(form["compression_preset"], pdfOnly)
+		if presetErr != nil {
+			return "backend.status.invalid_compression_preset", nil, presetErr
+		}
+	}
 
 	if database.IsMultiUserMode() && userID != uuid.Nil {
 		dbUser, _ = database.NewUserService(database.DB).GetUserByID(userID)
@@ -148,7 +158,7 @@ func processMultipleFilesForUser(jobID string, form map[string]string, userID uu
 				expectedPages = pages
 			}
 
-			compressedPath, compErr := compressor.CompressPDFWithProgress(filePath, func(page, total int) {
+			compressedPath, compErr := compressor.CompressPDFWithProgress(filePath, preset, func(page, total int) {
 				// Calculate overall progress: (all previously processed pages + current progress within this file) / total pages
 				if totalPages > 0 && total > 0 {
 					// Current progress within this file as a fraction of its total pages

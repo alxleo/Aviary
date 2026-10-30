@@ -41,6 +41,7 @@ type DocumentRequest struct {
 	IsContent          bool   `form:"IsContent" json:"isContent"`     // Flag: true=content, false=URL
 	Prefix             string `form:"prefix" json:"prefix"`
 	Compress           string `form:"compress" json:"compress"`
+	CompressionPreset  string `form:"compression_preset" json:"compression_preset"`
 	Manage             string `form:"manage" json:"manage"`
 	Archive            string `form:"archive" json:"archive"`
 	RmDir              string `form:"rm_dir" json:"rm_dir"`
@@ -50,6 +51,40 @@ type DocumentRequest struct {
 	Contrast           string `form:"contrast" json:"contrast"`
 	CurrentPage        string `form:"currentpage" json:"currentpage"`
 	RemoveBackground   string `form:"remove_background" json:"removeBackground"`
+}
+
+func (req DocumentRequest) form(body string) map[string]string {
+	form := map[string]string{
+		"Body":                body,
+		"prefix":              req.Prefix,
+		"compress":            req.Compress,
+		"compression_preset":  req.CompressionPreset,
+		"manage":              req.Manage,
+		"archive":             req.Archive,
+		"rm_dir":              req.RmDir,
+		"retention_days":      req.RetentionDays,
+		"conflict_resolution": req.ConflictResolution,
+		"coverpage":           req.Coverpage,
+		"contrast":            req.Contrast,
+		"currentpage":         req.CurrentPage,
+		"remove_background":   req.RemoveBackground,
+	}
+
+	// Set defaults for empty values
+	if form["compress"] == "" {
+		form["compress"] = "false"
+	}
+	if form["manage"] == "" {
+		form["manage"] = "false"
+	}
+	if form["archive"] == "" {
+		form["archive"] = "false"
+	}
+	if form["retention_days"] == "" {
+		form["retention_days"] = "7"
+	}
+
+	return form
 }
 
 // enqueueDocumentJob processes document content instead of URLs
@@ -181,35 +216,7 @@ func processDocumentForUser(jobID string, req DocumentRequest, userID uuid.UUID)
 	}
 	tempFile.Close()
 
-	// Create form map for existing processing pipeline
-	form := map[string]string{
-		"Body":                tempFilePath,
-		"prefix":              req.Prefix,
-		"compress":            req.Compress,
-		"manage":              req.Manage,
-		"archive":             req.Archive,
-		"rm_dir":              req.RmDir,
-		"retention_days":      req.RetentionDays,
-		"conflict_resolution": req.ConflictResolution,
-		"coverpage":           req.Coverpage,
-		"contrast":            req.Contrast,
-		"currentpage":         req.CurrentPage,
-		"remove_background":   req.RemoveBackground,
-	}
-
-	// Set defaults for empty values
-	if form["compress"] == "" {
-		form["compress"] = "false"
-	}
-	if form["manage"] == "" {
-		form["manage"] = "false"
-	}
-	if form["archive"] == "" {
-		form["archive"] = "false"
-	}
-	if form["retention_days"] == "" {
-		form["retention_days"] = "7"
-	}
+	form := req.form(tempFilePath)
 
 	// Process through existing pipeline
 	return processPDFForUser(jobID, form, userID)

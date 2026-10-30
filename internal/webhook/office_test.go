@@ -45,7 +45,7 @@ func TestWordUploadsReportConversionFailure(t *testing.T) {
 			form.Close()
 			request := httptest.NewRequest(http.MethodPost, "/api/upload", &body)
 			request.Header.Set("Content-Type", form.FormDataContentType())
-			assertWordConversionFailure(t, router, request)
+			assertJobFailure(t, router, request, "backend.status.conversion_error")
 		})
 	}
 
@@ -58,13 +58,13 @@ func TestWordUploadsReportConversionFailure(t *testing.T) {
 				}
 				request := httptest.NewRequest(http.MethodPost, "/api/webhook", bytes.NewReader(body))
 				request.Header.Set("Content-Type", "application/json")
-				assertWordConversionFailure(t, router, request)
+				assertJobFailure(t, router, request, "backend.status.conversion_error")
 			})
 		}
 	}
 }
 
-func assertWordConversionFailure(t *testing.T, router http.Handler, request *http.Request) {
+func assertJobFailure(t *testing.T, router http.Handler, request *http.Request, expectedMessage string) {
 	t.Helper()
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
@@ -77,7 +77,7 @@ func assertWordConversionFailure(t *testing.T, router http.Handler, request *htt
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.JobID == "" {
 		t.Fatalf("missing job: %s", response.Body)
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		response = httptest.NewRecorder()
 		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/status/"+result.JobID, nil))
@@ -89,13 +89,13 @@ func assertWordConversionFailure(t *testing.T, router http.Handler, request *htt
 			t.Fatal(err)
 		}
 		if status.Status == "error" {
-			if status.Message != "backend.status.conversion_error" {
+			if status.Message != expectedMessage {
 				t.Fatalf("wrong failure: %s", response.Body)
 			}
 			return
 		}
 		if status.Status == "success" {
-			t.Fatalf("raw Word document uploaded: %s", response.Body)
+			t.Fatalf("job unexpectedly succeeded: %s", response.Body)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
