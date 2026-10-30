@@ -188,33 +188,7 @@ func EnqueueHandler(c *gin.Context) {
 			c.JSON(http.StatusAccepted, gin.H{"jobId": id})
 		} else {
 			// JSON URL processing - convert to form map
-			form := map[string]string{
-				"Body":                req.Body,
-				"prefix":              req.Prefix,
-				"compress":            req.Compress,
-				"manage":              req.Manage,
-				"archive":             req.Archive,
-				"rm_dir":              req.RmDir,
-				"retention_days":      req.RetentionDays,
-				"conflict_resolution": req.ConflictResolution,
-				"coverpage":           req.Coverpage,
-				"contrast":            req.Contrast,
-				"currentpage":         req.CurrentPage,
-				"remove_background":   req.RemoveBackground,
-			}
-			// Set defaults for empty values
-			if form["compress"] == "" {
-				form["compress"] = "false"
-			}
-			if form["manage"] == "" {
-				form["manage"] = "false"
-			}
-			if form["archive"] == "" {
-				form["archive"] = "false"
-			}
-			if form["retention_days"] == "" {
-				form["retention_days"] = "7"
-			}
+			form := req.form(req.Body)
 			id := enqueueJobForUser(form, userID)
 			c.JSON(http.StatusAccepted, gin.H{"jobId": id})
 		}
@@ -224,6 +198,7 @@ func EnqueueHandler(c *gin.Context) {
 			"Body":                c.PostForm("Body"),
 			"prefix":              c.PostForm("prefix"),
 			"compress":            c.DefaultPostForm("compress", "false"),
+			"compression_preset":  c.PostForm("compression_preset"),
 			"manage":              c.DefaultPostForm("manage", "false"),
 			"archive":             c.DefaultPostForm("archive", "false"),
 			"rm_dir":              c.PostForm("rm_dir"),
@@ -326,11 +301,12 @@ func processPDFForUser(jobID string, form map[string]string, userID uuid.UUID) (
 	}
 
 	var (
-		localPath  string
-		remoteName string
-		err        error
-		cleanupErr error
-		dbUser     *database.User
+		localPath   string
+		sourceIsPDF bool
+		remoteName  string
+		err         error
+		cleanupErr  error
+		dbUser      *database.User
 	)
 
 	if database.IsMultiUserMode() && userID != uuid.Nil {
@@ -359,6 +335,7 @@ func processPDFForUser(jobID string, form map[string]string, userID uuid.UUID) (
 	if secureBodyPath, err := security.NewSecurePathFromExisting(body); err == nil {
 		if fi, statErr := security.SafeStat(secureBodyPath); statErr == nil && !fi.IsDir() {
 			localPath = body
+			sourceIsPDF = strings.EqualFold(filepath.Ext(body), ".pdf")
 			manager.Logf("processPDF: using local file path %q, skipping download", localPath)
 			jobStore.UpdateWithOperation(jobID, "Running", "backend.status.using_uploaded_file", nil, "processing")
 			// Ensure we delete this file (even on error) once we're done
@@ -382,6 +359,7 @@ func processPDFForUser(jobID string, form map[string]string, userID uuid.UUID) (
 		contentType := detectURLContentType(match)
 
 		if contentType == "application/pdf" || contentType == "application/epub+zip" {
+			sourceIsPDF = contentType == "application/pdf"
 			// Direct download of PDF/EPUB
 			manager.Logf("DownloadPDF: tmp=true, prefix=%q", prefix)
 			jobStore.UpdateWithOperation(jobID, "Running", "backend.status.downloading", nil, "downloading")
@@ -536,6 +514,14 @@ func processPDFForUser(jobID string, form map[string]string, userID uuid.UUID) (
 				}
 			}
 		}()
+	}
+
+	preset := compressor.DefaultPreset
+	if compress {
+		preset, err = compressor.SelectPreset(form["compression_preset"], sourceIsPDF)
+		if err != nil {
+			return "backend.status.invalid_compression_preset", nil, err
+		}
 	}
 
 	if converter.IsOfficeDocument(localPath) {
@@ -716,7 +702,7 @@ func processPDFForUser(jobID string, form map[string]string, userID uuid.UUID) (
 		manager.Logf("Compressing PDF")
 		jobStore.UpdateWithOperation(jobID, "Running", "backend.status.compressing_pdf", nil, "compressing")
 		jobStore.UpdateProgress(jobID, 0)
-		compressedPath, compErr := compressor.CompressPDFWithProgress(localPath, func(page, total int) {
+		compressedPath, compErr := compressor.CompressPDFWithProgress(localPath, preset, func(page, total int) {
 			pct := int(float64(page) / float64(total) * 100)
 			jobStore.UpdateProgress(jobID, pct)
 		})

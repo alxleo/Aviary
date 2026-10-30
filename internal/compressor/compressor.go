@@ -13,28 +13,27 @@ import (
 // ExecCommand is exec.Command by default, but can be overridden in tests.
 var ExecCommand = exec.Command
 
-// CompressPDF invokes Ghostscript with GS_COMPAT and GS_SETTINGS env vars.
-// It is a thin wrapper over CompressPDFWithProgress without progress updates.
-func CompressPDF(path string) (string, error) {
-	return CompressPDFWithProgress(path, nil)
-}
-
 // CompressPDFWithProgress runs Ghostscript and reports progress via the callback.
 // progress is called with the current page and total pages processed.
-func CompressPDFWithProgress(path string, progress func(page, total int)) (string, error) {
+func CompressPDFWithProgress(path string, preset Preset, progress func(page, total int)) (string, error) {
+	presetArgs, err := preset.arguments()
+	if err != nil {
+		return "", err
+	}
 	ext := filepath.Ext(path)
 	base := path[:len(path)-len(ext)]
 	out := fmt.Sprintf("%s_compressed%s", base, ext)
 	compat := config.Get("GS_COMPAT", "1.7")
-	settings := config.Get("GS_SETTINGS", "/ebook")
 	args := []string{
 		"gs", "-sDEVICE=pdfwrite",
 		fmt.Sprintf("-dCompatibilityLevel=%s", compat),
-		fmt.Sprintf("-dPDFSETTINGS=%s", settings),
+	}
+	args = append(args, presetArgs...)
+	args = append(args,
 		"-dNOPAUSE", "-dBATCH",
 		fmt.Sprintf("-sOutputFile=%s", out),
 		path,
-	}
+	)
 	cmd := ExecCommand(args[0], args[1:]...)
 
 	stdout, err := cmd.StdoutPipe()
@@ -82,16 +81,16 @@ func GetPDFPageCount(path string) (int, error) {
 		"-c", "(" + path + ") (r) file runpdfbegin pdfpagecount = quit",
 	}
 	cmd := ExecCommand(args[0], args[1:]...)
-	
+
 	output, err := cmd.Output()
 	if err != nil {
 		return 0, err
 	}
-	
+
 	var pageCount int
 	if _, err := fmt.Sscanf(string(output), "%d", &pageCount); err != nil {
 		return 0, err
 	}
-	
+
 	return pageCount, nil
 }

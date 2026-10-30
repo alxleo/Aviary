@@ -1,7 +1,8 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { LoginForm } from "@/components/LoginForm";
 import { PairingDialog } from "@/components/PairingDialog";
+import { useDocumentProcessing } from "@/hooks/useDocumentProcessing";
 import { useUserData } from "@/hooks/useUserData";
 import { useConfig } from "@/components/ConfigProvider";
 import { useFolderRefresh } from "@/hooks/useFolderRefresh";
@@ -32,7 +33,11 @@ import { useTranslation } from "react-i18next";
 import i18n from "@/lib/i18n";
 import { getSharedFiles, getSharedData, clearSharedFiles, clearSharedData } from "@/lib/sharedFiles";
 
-const COMPRESSIBLE_EXTS = [".pdf", ".png", ".jpg", ".jpeg"];
+const COMPRESSION_PRESETS = [
+  { value: "default", label: "home.compression_default", pdfOnly: false },
+  { value: "scan_300_color", label: "home.compression_scan_color", pdfOnly: true },
+  { value: "scan_300_grayscale", label: "home.compression_scan_grayscale", pdfOnly: true },
+];
 const POLL_INTERVAL_MS = 200;
 
 const globalFoldersFetch = {
@@ -97,21 +102,6 @@ function getErrorMessage(err: unknown): string {
   return String(err);
 }
 
-async function sniffMime(url: string): Promise<string | null> {
-  try {
-    const resp = await fetch(`/api/sniff?url=${encodeURIComponent(url)}`, {
-      headers: {
-        "Accept-Language": i18n.language,
-      },
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    return data.mime || null;
-  } catch {
-    return null;
-  }
-}
-
 // Helper function to truncate long directory paths from the beginning
 const truncateFromStart = (path: string, maxLength: number = 40): string => {
   if (path.length <= maxLength) return path;
@@ -128,10 +118,10 @@ export default function HomePage() {
   const { refreshTrigger, triggerRefresh } = useFolderRefresh();
   const [url, setUrl] = useState<string>("");
   const [committedUrl, setCommittedUrl] = useState<string>("");
-  const [urlMime, setUrlMime] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [compress, setCompress] = useState<boolean>(false);
+  const [compressionPreset, setCompressionPreset] = useState("default");
   const [removeBackground, setRemoveBackground] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [status, setStatus] = useState<string>("");
@@ -152,73 +142,16 @@ export default function HomePage() {
 
   const [pairingDialogOpen, setPairingDialogOpen] = useState(false);
 
-  const isCompressibleFileOrUrl = useMemo(() => {
-    if (selectedFiles.length > 0) {
-      return selectedFiles.some(file => {
-        const lowerName = file.name.toLowerCase();
-        return COMPRESSIBLE_EXTS.some((ext) => lowerName.endsWith(ext));
-      });
-    }
-    if (selectedFile) {
-      const lowerName = selectedFile.name.toLowerCase();
-      return COMPRESSIBLE_EXTS.some((ext) => lowerName.endsWith(ext));
-    }
-
-    const trimmed = committedUrl.trim();
-    if (!trimmed) {
-      return true;
-    }
-
-    let path = trimmed;
-    try {
-      path = new URL(trimmed).pathname;
-    } catch {
-    }
-    const lowerPath = path.toLowerCase();
-
-    if (COMPRESSIBLE_EXTS.some((ext) => lowerPath.endsWith(ext))) {
-      return true;
-    }
-
-    const lastSegment = lowerPath.split("/").pop() || "";
-    if (lastSegment.includes(".")) {
-      return false;
-    }
-
-    if (urlMime) {
-      const mt = urlMime.toLowerCase();
-      return (
-        mt.startsWith("application/pdf") ||
-        mt.startsWith("image/png") ||
-        mt.startsWith("image/jpeg")
-      );
-    }
-    return true;
-  }, [selectedFile, selectedFiles, committedUrl, urlMime]);
+  const { compressible: isCompressibleFileOrUrl, pdfOnly: isPDFFileOrUrl } = useDocumentProcessing(
+    selectedFiles.length ? selectedFiles : selectedFile ? [selectedFile] : [],
+    url === committedUrl ? committedUrl : "",
+  );
+  const activeCompressionPreset = isPDFFileOrUrl ? compressionPreset : "default";
 
   useEffect(() => {
-    if (!isCompressibleFileOrUrl && compress) {
-      setCompress(false);
-    }
-  }, [isCompressibleFileOrUrl, compress]);
-
-  // Check if the selected file/URL is a PDF
-  const isPDFFileOrUrl = useMemo(() => {
-    if (selectedFiles.length > 0) {
-      return selectedFiles.every(file => file.name.toLowerCase().endsWith('.pdf'));
-    }
-    if (selectedFile) {
-      return selectedFile.name.toLowerCase().endsWith('.pdf');
-    }
-    const trimmed = committedUrl.trim();
-    if (!trimmed) return false;
-    let path = trimmed;
-    try {
-      path = new URL(trimmed).pathname;
-    } catch {
-    }
-    return path.toLowerCase().endsWith('.pdf');
-  }, [selectedFile, selectedFiles, committedUrl]);
+    if (!isCompressibleFileOrUrl) setCompress(false);
+    if (!isPDFFileOrUrl) setCompressionPreset("default");
+  }, [isCompressibleFileOrUrl, isPDFFileOrUrl]);
 
   // Show background removal toggle if user has it enabled (multi-user) or config has it enabled (single-user)
   const showBgRemovalToggle = user?.pdf_background_removal || (!multiUserMode && config?.pdf_background_removal);
@@ -394,7 +327,6 @@ export default function HomePage() {
       // Clear all sensitive state that could leak between users
       setUrl("");
       setCommittedUrl("");
-      setUrlMime(null);
       setSelectedFile(null);
       setSelectedFiles([]);
       setCompress(false);
@@ -427,7 +359,6 @@ export default function HomePage() {
       hasHandledShareUrl.current = true;
       setUrl(shareUrl);
       setCommittedUrl(shareUrl);
-      sniffMime(shareUrl).then((mt) => setUrlMime(mt));
       params.delete("share_url");
       const newSearch = params.toString();
       window.history.replaceState({}, "", newSearch ? `?${newSearch}` : window.location.pathname);
@@ -445,15 +376,12 @@ export default function HomePage() {
         setSelectedFile(null);
         setSelectedFiles(files);
         setUrl("");
-        setUrlMime(null);
       } else if (data?.url) {
         setUrl(data.url);
         setCommittedUrl(data.url);
-        sniffMime(data.url).then((mt) => setUrlMime(mt));
       } else if (data?.text) {
         setUrl(data.text);
         setCommittedUrl(data.text);
-        sniffMime(data.text).then((mt) => setUrlMime(mt));
       }
 
       await Promise.all([clearSharedFiles(), clearSharedData()]);
@@ -475,7 +403,6 @@ export default function HomePage() {
       setSelectedFile(null);
       setSelectedFiles(prev => [...prev, file]);
       setUrl("");
-      setUrlMime(null);
     };
     (window as any).aviaryInjectFiles = (filesArray: Array<[string, string, string]>) => {
       const files = filesArray.map(([base64, filename, mimeType]) => {
@@ -489,7 +416,6 @@ export default function HomePage() {
       setSelectedFile(null);
       setSelectedFiles(files);
       setUrl("");
-      setUrlMime(null);
     };
     return () => {
       delete (window as any).aviaryInjectFile;
@@ -503,7 +429,6 @@ export default function HomePage() {
       if (typeof detail === "string" && detail) {
         setUrl(detail);
         setCommittedUrl(detail);
-        sniffMime(detail).then((mt) => setUrlMime(mt));
       }
     };
     window.addEventListener("aviary-share-url", handleShareUrlEvent);
@@ -613,6 +538,7 @@ export default function HomePage() {
         }
         
         formData.append("compress", compress ? "true" : "false");
+        if (compress) formData.append("compression_preset", activeCompressionPreset);
         if (removeBackground) {
           formData.append("remove_background", "true");
         }
@@ -650,6 +576,7 @@ export default function HomePage() {
       const form = new URLSearchParams();
       form.append("Body", url);
       form.append("compress", compress ? "true" : "false");
+      if (compress) form.append("compression_preset", activeCompressionPreset);
       if (removeBackground) {
         form.append("remove_background", "true");
       }
@@ -717,17 +644,8 @@ export default function HomePage() {
                 if (selectedFiles.length > 0) {
                   setSelectedFiles([]);
                 }
-                setUrlMime(null);
               }}
-              onBlur={async () => {
-                setCommittedUrl(url);
-                if (url.trim()) {
-                  const mt = await sniffMime(url.trim());
-                  setUrlMime(mt);
-                } else {
-                  setUrlMime(null);
-                }
-              }}
+              onBlur={() => setCommittedUrl(url)}
               placeholder={t("home.url_placeholder")}
               disabled={!!selectedFile || selectedFiles.length > 0}
             />
@@ -747,7 +665,6 @@ export default function HomePage() {
                 if (selectedFiles.length > 0) {
                   setSelectedFiles([]);
                 }
-                setUrlMime(null);
               }}
               onFilesSelected={(files) => {
                 setSelectedFiles(files);
@@ -757,7 +674,6 @@ export default function HomePage() {
                 if (selectedFile) {
                   setSelectedFile(null);
                 }
-                setUrlMime(null);
               }}
               onError={(msg) => {
                 setFileError(msg);
@@ -878,6 +794,23 @@ export default function HomePage() {
               </div>
             )}
           </div>
+
+          {compress && isCompressibleFileOrUrl && (
+            <div className="space-y-2 mt-3">
+              <Label htmlFor="compression-preset">{t("home.compression_preset")}</Label>
+              <Select value={activeCompressionPreset} onValueChange={setCompressionPreset}>
+                <SelectTrigger id="compression-preset"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {COMPRESSION_PRESETS.map(preset => (
+                    <SelectItem key={preset.value} value={preset.value} disabled={preset.pdfOnly && !isPDFFileOrUrl}>
+                      {t(preset.label)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">{t("home.compression_scan_help")}</p>
+            </div>
+          )}
 
           {!rmapiPaired && !rmapiShared && !userDataLoading && (
             <div className="bg-muted border rounded-md p-3 text-muted-foreground">
