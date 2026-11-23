@@ -1,6 +1,7 @@
 name: build-docker
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - '**'
@@ -71,7 +72,7 @@ jobs:
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: |
-            ghcr.io/alxleo/aviary
+            ghcr.io/${{ github.repository }}
           tags: |
             # branch-based tags (e.g. 'main')
             type=ref,event=branch
